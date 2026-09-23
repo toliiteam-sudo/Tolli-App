@@ -37,8 +37,11 @@ class AuthController extends ChangeNotifier {
   AuthModel get state => _state;
   int get resendCountdown => _resendCountdown;
   bool get canResend => _canResend;
-  String get formattedCountdown =>
-      '00:${_resendCountdown.toString().padLeft(2, '0')}';
+  String get formattedCountdown {
+    final minutes = (_resendCountdown ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_resendCountdown % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
 
   /// Read-only preview username generated dynamically from First Name + Last Name
   String get previewUsername => UsernameValidator.generateBaseUsername(_state.firstName, _state.lastName);
@@ -152,7 +155,7 @@ class AuthController extends ChangeNotifier {
       }
 
       _state.otpError = null;
-      startResendTimer(seconds: 60);
+      startResendTimer(seconds: 300);
       _state.currentStep = 2;
       notifyListeners();
       return true;
@@ -294,7 +297,7 @@ class AuthController extends ChangeNotifier {
         return;
       }
 
-      startResendTimer(seconds: 60);
+      startResendTimer(seconds: 300);
       notifyListeners();
     } else {
       await Future.delayed(const Duration(milliseconds: 500));

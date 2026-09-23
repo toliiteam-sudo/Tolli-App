@@ -11,19 +11,22 @@ app.use(express.json());
 app.use(cors());
 
 // 1. Initialize Email Transporter (Gmail SMTP / Nodemailer)
-const SMTP_USER = process.env.SMTP_USER; // e.g. tolii.team@gmail.com
-const SMTP_PASS = process.env.SMTP_PASS; // 16-character Google App Password
+const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null; // e.g. tolii.team@gmail.com
+const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null; // 16-character Google App Password without spaces
 
 let smtpTransporter = null;
 if (SMTP_USER && SMTP_PASS) {
   smtpTransporter = nodemailer.createTransport({
     service: 'gmail',
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
     }
   });
-  console.log(`[EMAIL] Initialized Gmail SMTP Transporter with user: ${SMTP_USER}`);
+  console.log(`[EMAIL] Initialized Lightning Gmail SMTP Transporter for ${SMTP_USER}`);
 }
 
 // 2. Initialize Resend Fallback
