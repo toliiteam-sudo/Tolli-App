@@ -226,34 +226,43 @@ class _SelectActivitySheetState extends State<SelectActivitySheet> {
               ),
             ),
 
-            // Search Bar
+            // Search Bar (Matching SS 3: Height 50, Capsule shape radius 25, primary search icon)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Container(
+                height: 50,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x05000000),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
                     const Icon(
                       Icons.search_rounded,
-                      color: Color(0xFF94A3B8),
-                      size: 20,
+                      color: AppColors.primary,
+                      size: 22,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: TextField(
                         controller: _searchController,
+                        maxLength: 100,
                         onChanged: (val) {
                           setState(() {
                             _searchQuery = val.trim();
                           });
                         },
                         style: const TextStyle(
-                          fontSize: 14.5,
+                          fontSize: 14,
                           color: AppColors.textDark,
                         ),
                         decoration: const InputDecoration(
@@ -261,10 +270,12 @@ class _SelectActivitySheetState extends State<SelectActivitySheet> {
                           hintStyle: TextStyle(
                             fontSize: 14,
                             color: Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w400,
                           ),
                           border: InputBorder.none,
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 12),
+                          counterText: '',
+                          contentPadding: EdgeInsets.zero,
                         ),
                       ),
                     ),

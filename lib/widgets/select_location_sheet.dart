@@ -90,24 +90,39 @@ class _SelectLocationSheetState extends State<SelectLocationSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final bottomPadding = mediaQuery.padding.bottom;
+    final topPadding = mediaQuery.padding.top;
+    final screenHeight = mediaQuery.size.height;
+
+    // Available height above keyboard, maintaining at least 50px gap below status bar
+    final maxAvailableHeight = bottomInset > 0
+        ? (screenHeight - bottomInset - topPadding - 50).clamp(240.0, screenHeight * 0.65)
+        : screenHeight * 0.82;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
         ),
-      ),
-      padding: EdgeInsets.only(
-        top: 14,
-        bottom: MediaQuery.of(context).padding.bottom + 16,
-      ),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+        padding: EdgeInsets.only(
+          top: 14,
+          bottom: bottomInset > 0 ? 10 : bottomPadding + 16,
+        ),
+        constraints: BoxConstraints(
+          maxHeight: maxAvailableHeight,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           // Top Navigation Row
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -146,29 +161,38 @@ class _SelectLocationSheetState extends State<SelectLocationSheet> {
             ),
           ),
 
-          // Search Bar
+          // Search Bar (Matching SS 3: Height 50, Capsule shape radius 25, primary search icon)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
             child: Container(
+              height: 50,
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x05000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
               ),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
                   const Icon(
                     Icons.search_rounded,
-                    color: Color(0xFF94A3B8),
-                    size: 20,
+                    color: AppColors.primary,
+                    size: 22,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
                       controller: _searchController,
+                      maxLength: 100,
                       style: const TextStyle(
-                        fontSize: 14.5,
+                        fontSize: 14,
                         color: AppColors.textDark,
                       ),
                       decoration: const InputDecoration(
@@ -176,10 +200,12 @@ class _SelectLocationSheetState extends State<SelectLocationSheet> {
                         hintStyle: TextStyle(
                           fontSize: 14,
                           color: Color(0xFF94A3B8),
+                          fontWeight: FontWeight.w400,
                         ),
                         border: InputBorder.none,
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 12),
+                        counterText: '',
+                        contentPadding: EdgeInsets.zero,
                       ),
                     ),
                   ),
@@ -419,6 +445,7 @@ class _SelectLocationSheetState extends State<SelectLocationSheet> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

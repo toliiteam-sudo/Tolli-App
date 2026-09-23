@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
 import '../models/activity_model.dart';
+import '../services/toli_share_service.dart';
+import '../utils/app_transitions.dart';
+import 'activity_detail_screen.dart';
 
 class JoinedScreen extends StatefulWidget {
   final ActivityModel activity;
@@ -298,8 +301,15 @@ class _JoinedScreenState extends State<JoinedScreen>
                       // 1. Open activity (solid deep blue)
                       GestureDetector(
                         onTap: () {
-                          // Return to detail / view activity
-                          Navigator.of(context).pop();
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                          } else {
+                            Navigator.of(context).pushReplacement(
+                              AppTransitions.slidePageRoute(
+                                ActivityDetailScreen(activity: widget.activity),
+                              ),
+                            );
+                          }
                         },
                         child: Container(
                           width: double.infinity,
@@ -330,14 +340,7 @@ class _JoinedScreenState extends State<JoinedScreen>
 
                       // 2. Invite people (outlined)
                       GestureDetector(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Invite link ready to share!'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: () => ToliShareService.invitePlayers(context, widget.activity),
                         child: Container(
                           width: double.infinity,
                           height: 50,
@@ -375,14 +378,7 @@ class _JoinedScreenState extends State<JoinedScreen>
 
                       // 3. Share activity (outlined)
                       GestureDetector(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Activity shared!'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: () => ToliShareService.shareActivity(context, widget.activity),
                         child: Container(
                           width: double.infinity,
                           height: 50,

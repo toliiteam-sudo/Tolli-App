@@ -1,83 +1,119 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import '../constants/app_assets.dart';
+import '../controllers/auth_controller.dart';
 import '../models/activity_model.dart';
+import '../repositories/activity_repository.dart';
 
 class ActivitiesController extends ChangeNotifier {
   static final ActivitiesController _instance = ActivitiesController._internal();
   factory ActivitiesController() => _instance;
 
+  final ActivityRepository _activityRepository = ActivityRepository();
+  StreamSubscription<List<ActivityModel>>? _activitiesSubscription;
+
   int _selectedDateIndex = 0;
   String _selectedFilterId = 'all';
   String _selectedLocation = 'Bhavnagar';
-  final String _userName = 'Vatsal';
 
   int get selectedDateIndex => _selectedDateIndex;
   String get selectedFilterId => _selectedFilterId;
   String get selectedLocation => _selectedLocation;
-  String get userName => _userName;
+  String get userName => AuthController.instance.state.displayName;
 
   late List<DateItemModel> _dates;
   late List<FilterChipModel> _filters;
-  late List<ActivityModel> _allActivities;
-  late List<ActivityModel> _userActivities;
+  List<ActivityModel> _allActivities = [];
+  List<ActivityModel> _userActivities = [];
   late List<PlayerModel> _quickInvites;
+
+  final Set<String> _pendingRequestActivityIds = {};
 
   List<DateItemModel> get dates => _dates;
   List<FilterChipModel> get filters => _filters;
   List<ActivityModel> get userActivities => _userActivities;
   List<PlayerModel> get quickInvites => _quickInvites;
 
+  bool isRequestPending(String activityId) => _pendingRequestActivityIds.contains(activityId);
+
+  void addPendingRequest(String activityId) {
+    _pendingRequestActivityIds.add(activityId);
+    notifyListeners();
+  }
+
   ActivitiesController._internal() {
     _initializeData();
+    _startRealtimeSubscription();
+    try {
+      FirebaseAuth.instance.authStateChanges().listen((user) {
+        _startRealtimeSubscription();
+      });
+    } catch (e) {
+      debugPrint('FirebaseAuth authStateChanges omitted in non-Firebase test environment: $e');
+    }
+  }
+
+  StreamSubscription<List<ActivityModel>>? _userActivitiesSubscription;
+
+  void _startRealtimeSubscription() {
+    _activitiesSubscription?.cancel();
+    _userActivitiesSubscription?.cancel();
+    try {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+      _activitiesSubscription = _activityRepository
+          .watchActivities(currentUid: currentUid)
+          .listen((firestoreActivities) {
+        _allActivities = firestoreActivities;
+        notifyListeners();
+      }, onError: (error) {
+        debugPrint('Error listening to real-time activities: $error');
+      });
+
+      if (currentUid != null && currentUid.isNotEmpty) {
+        _userActivitiesSubscription = _activityRepository
+            .watchUserUpcomingActivities(currentUid)
+            .listen((upcoming) {
+          _userActivities = upcoming;
+          notifyListeners();
+        }, onError: (error) {
+          debugPrint('Error listening to user upcoming activities: $error');
+        });
+      } else {
+        _userActivities = [];
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Firebase streams omitted in non-Firebase test environment: $e');
+    }
+  }
+
+  void reset() {
+    _selectedDateIndex = 0;
+    _selectedFilterId = 'all';
+    _initializeData();
+    _startRealtimeSubscription();
+    notifyListeners();
+  }
+
+  String _getShortDayName(int weekday) {
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    return days[(weekday - 1) % 7];
   }
 
   void _initializeData() {
     final now = DateTime.now();
 
-    _dates = [
-      DateItemModel(
-        dayName: 'TODAY',
-        dayNumber: '20',
-        date: now,
-        isSelected: true,
-      ),
-      DateItemModel(
-        dayName: 'FRI',
-        dayNumber: '21',
-        date: now.add(const Duration(days: 1)),
-        isSelected: false,
-      ),
-      DateItemModel(
-        dayName: 'SAT',
-        dayNumber: '22',
-        date: now.add(const Duration(days: 2)),
-        isSelected: false,
-      ),
-      DateItemModel(
-        dayName: 'SUN',
-        dayNumber: '23',
-        date: now.add(const Duration(days: 3)),
-        isSelected: false,
-      ),
-      DateItemModel(
-        dayName: 'MON',
-        dayNumber: '24',
-        date: now.add(const Duration(days: 4)),
-        isSelected: false,
-      ),
-      DateItemModel(
-        dayName: 'TUE',
-        dayNumber: '25',
-        date: now.add(const Duration(days: 5)),
-        isSelected: false,
-      ),
-      DateItemModel(
-        dayName: 'WED',
-        dayNumber: '26',
-        date: now.add(const Duration(days: 6)),
-        isSelected: false,
-      ),
-    ];
+    _dates = List.generate(180, (index) {
+      final date = now.add(Duration(days: index));
+      final dayName = index == 0 ? 'TODAY' : _getShortDayName(date.weekday);
+      return DateItemModel(
+        dayName: dayName,
+        dayNumber: '${date.day}',
+        date: date,
+        isSelected: index == 0,
+      );
+    });
 
     _filters = [
       const FilterChipModel(
@@ -100,286 +136,9 @@ class ActivitiesController extends ChangeNotifier {
       ),
     ];
 
-    _allActivities = [
-      const ActivityModel(
-        id: 'act_1',
-        title: 'Box Cricket',
-        subtitle: 'Today · 8:00 PM · 2.1 km',
-        iconAsset: AppAssets.actBoxCricket,
-        sportCategory: SportCategory.boxCricket,
-        skillLevel: SkillLevel.beginner,
-        joinedPlayers: 6,
-        totalPlayers: 10,
-        pricePerPerson: 120,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_2',
-        title: 'Pickleball Match',
-        subtitle: 'Tomorrow · 6:30 PM · 1.8 km',
-        iconAsset: AppAssets.actPickleball,
-        sportCategory: SportCategory.pickleball,
-        skillLevel: SkillLevel.intermediate,
-        joinedPlayers: 4,
-        totalPlayers: 8,
-        pricePerPerson: 150,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_3',
-        title: 'Football',
-        subtitle: 'Saturday · 5:00 PM · 3.2 km',
-        iconAsset: AppAssets.actFootball,
-        sportCategory: SportCategory.football,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 8,
-        totalPlayers: 14,
-        pricePerPerson: 100,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_4',
-        title: 'Badminton',
-        subtitle: 'Today · 7:00 PM · 0.8 km',
-        iconAsset: AppAssets.actBadminton,
-        sportCategory: SportCategory.badminton,
-        skillLevel: SkillLevel.beginner,
-        joinedPlayers: 3,
-        totalPlayers: 4,
-        pricePerPerson: 80,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_5',
-        title: 'Basketball 3v3',
-        subtitle: 'Sunday · 6:00 PM · 2.5 km',
-        iconAsset: AppAssets.actBasketball,
-        sportCategory: SportCategory.basketball,
-        skillLevel: SkillLevel.intermediate,
-        joinedPlayers: 5,
-        totalPlayers: 6,
-        pricePerPerson: 90,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_6',
-        title: 'Volleyball',
-        subtitle: 'Tomorrow · 5:30 PM · 3.0 km',
-        iconAsset: AppAssets.actVolleyball,
-        sportCategory: SportCategory.volleyball,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 8,
-        totalPlayers: 12,
-        pricePerPerson: 70,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_7',
-        title: 'Table Tennis',
-        subtitle: 'Today · 6:00 PM · 1.2 km',
-        iconAsset: AppAssets.actTableTennis,
-        sportCategory: SportCategory.tableTennis,
-        skillLevel: SkillLevel.beginner,
-        joinedPlayers: 2,
-        totalPlayers: 4,
-        pricePerPerson: 110,
-        note: 'No equipment needed',
-      ),
-      const ActivityModel(
-        id: 'act_8',
-        title: 'Morning Running Club',
-        subtitle: 'Tomorrow · 6:00 AM · 1.0 km',
-        iconAsset: AppAssets.actRunning,
-        sportCategory: SportCategory.running,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 12,
-        totalPlayers: 20,
-        pricePerPerson: 0,
-        note: 'Free entry · All paces welcome',
-      ),
-      const ActivityModel(
-        id: 'act_9',
-        title: 'Weekend Cycling Tour',
-        subtitle: 'Sunday · 6:30 AM · 4.0 km',
-        iconAsset: AppAssets.actCycling,
-        sportCategory: SportCategory.cycling,
-        skillLevel: SkillLevel.intermediate,
-        joinedPlayers: 7,
-        totalPlayers: 15,
-        pricePerPerson: 50,
-        note: 'Helmet required',
-      ),
-      const ActivityModel(
-        id: 'act_10',
-        title: 'Outdoor Sunrise Yoga',
-        subtitle: 'Sunday · 7:00 AM · 1.5 km',
-        iconAsset: AppAssets.actYoga,
-        sportCategory: SportCategory.yoga,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 9,
-        totalPlayers: 15,
-        pricePerPerson: 150,
-        note: 'Bring your own mat',
-      ),
-      const ActivityModel(
-        id: 'act_11',
-        title: 'Hill Trail Hike',
-        subtitle: 'Saturday · 5:30 AM · 8.0 km',
-        iconAsset: AppAssets.actHiking,
-        sportCategory: SportCategory.hiking,
-        skillLevel: SkillLevel.intermediate,
-        joinedPlayers: 6,
-        totalPlayers: 10,
-        pricePerPerson: 200,
-        note: 'Trekking shoes recommended',
-      ),
-      const ActivityModel(
-        id: 'act_12',
-        title: 'HIIT & Gym Workout',
-        subtitle: 'Today · 7:30 PM · 1.8 km',
-        iconAsset: AppAssets.actGym,
-        sportCategory: SportCategory.gym,
-        skillLevel: SkillLevel.advanced,
-        joinedPlayers: 4,
-        totalPlayers: 8,
-        pricePerPerson: 120,
-        note: 'Towel & water bottle needed',
-      ),
-      const ActivityModel(
-        id: 'act_13',
-        title: 'Board Games & Cafe Hangout',
-        subtitle: 'Friday · 6:00 PM · 2.0 km',
-        iconAsset: AppAssets.actCafeHangout,
-        sportCategory: SportCategory.cafeHangout,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 5,
-        totalPlayers: 8,
-        pricePerPerson: 100,
-        note: 'Snacks & beverages included',
-      ),
-      const ActivityModel(
-        id: 'act_14',
-        title: 'Console Gaming Night',
-        subtitle: 'Saturday · 8:30 PM · 2.8 km',
-        iconAsset: AppAssets.actGaming,
-        sportCategory: SportCategory.gaming,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 6,
-        totalPlayers: 8,
-        pricePerPerson: 150,
-        note: 'Controllers provided',
-      ),
-      const ActivityModel(
-        id: 'act_15',
-        title: 'Heritage Photography Walk',
-        subtitle: 'Sunday · 4:30 PM · 3.5 km',
-        iconAsset: AppAssets.actPhotography,
-        sportCategory: SportCategory.photography,
-        skillLevel: SkillLevel.allLevels,
-        joinedPlayers: 5,
-        totalPlayers: 12,
-        pricePerPerson: 100,
-        note: 'Bring camera or smartphone',
-      ),
-    ];
-
-    _userActivities = [
-      ActivityModel(
-        id: 'user_act_1',
-        title: 'Box Cricket Match',
-        subtitle: 'Today · 6:00 PM · Oval Maidan, Churchgate',
-        iconAsset: AppAssets.actBoxCricket,
-        sportCategory: SportCategory.boxCricket,
-        skillLevel: SkillLevel.intermediate,
-        joinedPlayers: 6,
-        totalPlayers: 10,
-        pricePerPerson: 150,
-        note: 'Match balls provided',
-        isHost: true,
-        venueName: 'Oval Maidan, Churchgate',
-        venueLocation: 'Mumbai · 1.5 km away',
-        players: _getDefaultPlayers(),
-      ),
-      ActivityModel(
-        id: 'user_act_2',
-        title: 'Badminton Doubles',
-        subtitle: 'Tomorrow · 7:30 AM · Sports Complex, Andheri',
-        iconAsset: AppAssets.actBadminton,
-        sportCategory: SportCategory.badminton,
-        skillLevel: SkillLevel.beginner,
-        joinedPlayers: 3,
-        totalPlayers: 4,
-        pricePerPerson: 200,
-        note: 'Bring your own racket',
-        isHost: true,
-        venueName: 'Sports Complex, Andheri',
-        venueLocation: 'Mumbai · 3.2 km away',
-        players: _getDefaultPlayers(),
-      ),
-    ];
-
-    _quickInvites = [
-      const PlayerModel(
-        id: 'qi_1',
-        name: 'Jayesh Mehta',
-        subtitle: '3 games together',
-        avatarBgColor: Color(0xFF475569),
-      ),
-      const PlayerModel(
-        id: 'qi_2',
-        name: 'Kunal Pandya',
-        subtitle: '7 games together',
-        avatarBgColor: Color(0xFF1E40AF),
-      ),
-    ];
-  }
-
-  static List<PlayerModel> _getDefaultPlayers() {
-    return [
-      const PlayerModel(
-        id: 'p_1',
-        name: 'Meet Patel',
-        role: 'HOST',
-        skill: 'Intermediate',
-        isHost: true,
-        avatarBgColor: Color(0xFF475569),
-      ),
-      const PlayerModel(
-        id: 'p_2',
-        name: 'Rohan Shah',
-        role: 'MEMBER',
-        skill: 'Advanced',
-        avatarBgColor: Color(0xFF334155),
-      ),
-      const PlayerModel(
-        id: 'p_3',
-        name: 'Amit Gohel',
-        role: 'MEMBER',
-        skill: 'Intermediate',
-        avatarBgColor: Color(0xFF0F172A),
-      ),
-      const PlayerModel(
-        id: 'p_4',
-        name: 'Divyesh Solanki',
-        role: 'MEMBER',
-        skill: 'Beginner',
-        avatarBgColor: Color(0xFF2563EB),
-      ),
-      const PlayerModel(
-        id: 'p_5',
-        name: 'Hardik Vora',
-        role: 'MEMBER',
-        skill: 'Advanced',
-        avatarBgColor: Color(0xFF64748B),
-      ),
-      const PlayerModel(
-        id: 'p_6',
-        name: 'Kunal Pandya',
-        role: 'MEMBER',
-        skill: 'Intermediate',
-        avatarBgColor: Color(0xFF1E40AF),
-      ),
-    ];
+    _allActivities = [];
+    _userActivities = [];
+    _quickInvites = [];
   }
 
   List<ActivityModel> get activities {
@@ -393,6 +152,28 @@ class ActivitiesController extends ChangeNotifier {
       _dates[i] = _dates[i].copyWith(isSelected: i == index);
     }
     notifyListeners();
+  }
+
+  void selectDateByDateTime(DateTime targetDate) {
+    final index = _dates.indexWhere((d) =>
+        d.date.year == targetDate.year &&
+        d.date.month == targetDate.month &&
+        d.date.day == targetDate.day);
+    if (index != -1) {
+      selectDate(index);
+    } else {
+      final dayName = _getShortDayName(targetDate.weekday);
+      final newItem = DateItemModel(
+        dayName: dayName,
+        dayNumber: '${targetDate.day}',
+        date: targetDate,
+        isSelected: true,
+      );
+      _dates.add(newItem);
+      _dates.sort((a, b) => a.date.compareTo(b.date));
+      final newIndex = _dates.indexWhere((d) => d.date == targetDate);
+      selectDate(newIndex != -1 ? newIndex : 0);
+    }
   }
 
   void selectFilter(String filterId) {
@@ -423,7 +204,6 @@ class ActivitiesController extends ChangeNotifier {
   void addActivity(ActivityModel activity) {
     final hostActivity = activity.copyWith(
       isHost: true,
-      players: activity.players ?? _getDefaultPlayers(),
       venueConfirmed: true,
     );
     _allActivities.insert(0, hostActivity);
@@ -431,13 +211,33 @@ class ActivitiesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleInvitePlayer(String id) {
-    final idx = _quickInvites.indexWhere((p) => p.id == id);
-    if (idx != -1) {
-      _quickInvites[idx] = _quickInvites[idx].copyWith(
-        isInvited: !_quickInvites[idx].isInvited,
-      );
-      notifyListeners();
+  Future<void> updateActivity(ActivityModel updatedActivity) async {
+    await _activityRepository.updateActivity(updatedActivity);
+    final allIndex = _allActivities.indexWhere((a) => a.id == updatedActivity.id);
+    if (allIndex != -1) {
+      _allActivities[allIndex] = updatedActivity;
     }
+    final userIndex = _userActivities.indexWhere((a) => a.id == updatedActivity.id);
+    if (userIndex != -1) {
+      _userActivities[userIndex] = updatedActivity;
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteActivity(String activityId) async {
+    await _activityRepository.deleteActivity(activityId);
+    _allActivities.removeWhere((a) => a.id == activityId);
+    _userActivities.removeWhere((a) => a.id == activityId);
+    notifyListeners();
+  }
+
+  Future<void> removePlayerFromActivity(String activityId, String playerId) async {
+    await _activityRepository.removeParticipant(activityId, playerId);
+  }
+
+  @override
+  void dispose() {
+    _activitiesSubscription?.cancel();
+    super.dispose();
   }
 }

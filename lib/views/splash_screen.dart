@@ -1,7 +1,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../controllers/auth_controller.dart';
 import '../widgets/tolii_logo.dart';
+import 'home_screen.dart';
+import 'location_screen.dart';
 import 'welcome_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -72,25 +75,42 @@ class _SplashScreenState extends State<SplashScreen>
 
     _mainController.forward();
 
-    // Navigate to WelcomeScreen after 2.8 seconds
-    Future.delayed(const Duration(milliseconds: 2800), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const WelcomeScreen(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-              return FadeTransition(
-                opacity: animation,
-                child: child,
-              );
-            },
-            transitionDuration: const Duration(milliseconds: 600),
-          ),
-        );
+    // Smart persistent startup routing
+    _navigateNext();
+  }
+
+  Future<void> _navigateNext() async {
+    await Future.delayed(const Duration(milliseconds: 2400));
+    if (!mounted) return;
+
+    await AuthController.instance.init();
+    if (!mounted) return;
+
+    final authController = AuthController.instance;
+    Widget targetScreen;
+
+    if (authController.isFirebaseAuthenticated) {
+      if (authController.state.isProfileComplete) {
+        targetScreen = const HomeScreen();
+      } else {
+        targetScreen = LocationScreen(authController: authController);
       }
-    });
+    } else {
+      targetScreen = const WelcomeScreen();
+    }
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => targetScreen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 500),
+      ),
+    );
   }
 
   @override

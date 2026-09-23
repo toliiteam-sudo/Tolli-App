@@ -26,7 +26,7 @@ class AppTypography {
       );
 
   static TextStyle get bodySubtitle => GoogleFonts.inter(
-        fontSize: 13,
+        fontSize: 13.5,
         fontWeight: FontWeight.w400,
         color: AppColors.textSecondary,
       );
@@ -37,14 +37,16 @@ class AppTypography {
         color: AppColors.textPrimary,
       );
 
+  static TextStyle get bodyText => bodyMedium;
+
   static TextStyle get labelMedium => GoogleFonts.inter(
-        fontSize: 13,
+        fontSize: 13.5,
         fontWeight: FontWeight.w500,
         color: AppColors.textSecondary,
       );
 
   static TextStyle get inputLabel => GoogleFonts.inter(
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: FontWeight.w500,
         color: AppColors.textSecondary,
       );
@@ -63,19 +65,19 @@ class AppTypography {
       );
 
   static TextStyle get errorText => GoogleFonts.inter(
-        fontSize: 12,
+        fontSize: 12.5,
         fontWeight: FontWeight.w400,
         color: AppColors.errorRed,
       );
 
   static TextStyle get caption => GoogleFonts.inter(
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: FontWeight.w400,
         color: AppColors.textSecondary,
       );
 
   static TextStyle get linkText => GoogleFonts.inter(
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: FontWeight.w500,
         color: AppColors.textPrimary,
       );

@@ -109,6 +109,7 @@ class _LocationPopupSheetState extends State<LocationPopupSheet> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
+                      maxLength: 100,
                       style: AppTypography.inputText.copyWith(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -117,6 +118,7 @@ class _LocationPopupSheetState extends State<LocationPopupSheet> {
                         hintText: 'Enter area or city',
                         border: InputBorder.none,
                         isDense: true,
+                        counterText: '',
                         contentPadding: EdgeInsets.zero,
                       ),
                       onChanged: (val) {

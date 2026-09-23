@@ -1,3 +1,12 @@
+enum UsernameValidationStatus {
+  idle,
+  invalid,
+  checking,
+  available,
+  taken,
+  error,
+}
+
 class AuthModel {
   String authMode; // 'phone' or 'email'
   String email;
@@ -9,11 +18,14 @@ class AuthModel {
   int currentStep; // 1 to 5
 
   // Location fields
+  double? latitude;
+  double? longitude;
   String selectedState;
   String selectedCity;
   String areaLocality;
   String streetAddress;
   String pincode;
+  String landmark;
   String locationSummary;
   bool isLocationDetected;
 
@@ -25,8 +37,20 @@ class AuthModel {
   String lastName;
   String username;
   bool isUsernameAvailable;
+  UsernameValidationStatus usernameValidationStatus;
+  String? checkedUsername;
   String? avatarUrl;
+  String? profileImagePath;
   String? gender;
+  bool isProfileComplete;
+
+  // Google Auth fields
+  String? googleDisplayName;
+  String? googleEmail;
+  String? googlePhotoUrl;
+  bool isGoogleSignedIn;
+
+  String? get photoUrl => avatarUrl ?? googlePhotoUrl;
 
   // Error & loading states
   String? phoneError;
@@ -34,39 +58,65 @@ class AuthModel {
   String? otpError;
   String? pincodeError;
   String? usernameError;
+  String? authError;
   bool isLoading;
 
   AuthModel({
     this.authMode = 'phone',
-    this.email = 'yourname@gmail.com',
-    this.phoneNumber = '+91 98765 43210',
+    this.email = '',
+    this.phoneNumber = '',
     this.phoneCountryCode = '+91',
-    this.rawPhoneNumber = '98765 43210',
+    this.rawPhoneNumber = '',
     this.otp = '',
     this.isWhatsappOptedIn = true,
     this.currentStep = 1,
-    this.selectedState = 'Gujarat',
-    this.selectedCity = 'Bhavnagar',
-    this.areaLocality = 'Chitra',
+    this.selectedState = '',
+    this.selectedCity = '',
+    this.areaLocality = '',
     this.streetAddress = '',
-    this.pincode = '364004',
-    this.locationSummary = 'Bhavnagar, India',
-    this.isLocationDetected = true,
+    this.pincode = '',
+    this.landmark = '',
+    this.locationSummary = '',
+    this.isLocationDetected = false,
     List<String>? selectedInterests,
     this.firstName = '',
     this.lastName = '',
-    this.username = 'eve_05',
-    this.isUsernameAvailable = true,
+    this.username = '',
+    this.isUsernameAvailable = false,
+    this.usernameValidationStatus = UsernameValidationStatus.idle,
     this.avatarUrl,
+    this.profileImagePath,
     this.gender,
+    this.isProfileComplete = false,
+    this.googleDisplayName,
+    this.googleEmail,
+    this.googlePhotoUrl,
+    this.isGoogleSignedIn = false,
     this.phoneError,
     this.emailError,
     this.otpError,
     this.pincodeError,
     this.usernameError,
+    this.authError,
     this.isLoading = false,
-  }) : selectedInterests = selectedInterests ??
-            ['Badminton', 'Running', 'Gaming', 'Photography'];
+  }) : selectedInterests = selectedInterests ?? [];
+
+  String get displayName {
+    final full = '$firstName $lastName'.trim();
+    if (full.isNotEmpty) return full;
+    if (googleDisplayName != null && googleDisplayName!.trim().isNotEmpty) {
+      return googleDisplayName!.trim();
+    }
+    if (username.isNotEmpty) return username;
+    if (email.contains('@')) return email.split('@').first;
+    return 'User';
+  }
+
+  String? get effectiveAvatarUrl {
+    if (avatarUrl != null && avatarUrl!.isNotEmpty) return avatarUrl;
+    if (googlePhotoUrl != null && googlePhotoUrl!.isNotEmpty) return googlePhotoUrl;
+    return null;
+  }
 
   String get fullPhoneNumber =>
       '$phoneCountryCode ${rawPhoneNumber.replaceAll(' ', '')}'.trim();
@@ -85,6 +135,7 @@ class AuthModel {
     String? areaLocality,
     String? streetAddress,
     String? pincode,
+    String? landmark,
     String? locationSummary,
     bool? isLocationDetected,
     List<String>? selectedInterests,
@@ -115,6 +166,7 @@ class AuthModel {
       areaLocality: areaLocality ?? this.areaLocality,
       streetAddress: streetAddress ?? this.streetAddress,
       pincode: pincode ?? this.pincode,
+      landmark: landmark ?? this.landmark,
       locationSummary: locationSummary ?? this.locationSummary,
       isLocationDetected: isLocationDetected ?? this.isLocationDetected,
       selectedInterests: selectedInterests ?? List.from(this.selectedInterests),
