@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -36,18 +37,23 @@ class EmailOtpProvider implements BaseOtpProvider {
         Uri.parse('$baseUrl/api/request-otp'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email.trim()}),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final Map<String, dynamic> data = jsonDecode(response.body);
       return OtpResponse(
         success: data['success'] == true,
-        message: data['message'] ?? 'Unknown response from server',
+        message: data['message'] ?? (data['success'] == true ? 'OTP sent successfully' : 'Failed to send OTP'),
+      );
+    } on TimeoutException {
+      return OtpResponse(
+        success: false,
+        message: 'Server took too long to respond. Please try again.',
       );
     } catch (e) {
       debugPrint('[OtpService] Error sending OTP request: $e');
       return OtpResponse(
         success: false,
-        message: 'Could not connect to authentication server. Please check internet connection.',
+        message: 'Could not connect to authentication server. Please check your internet connection.',
       );
     }
   }
@@ -62,14 +68,19 @@ class EmailOtpProvider implements BaseOtpProvider {
           'email': email.trim(),
           'otp': otp.trim(),
         }),
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final Map<String, dynamic> data = jsonDecode(response.body);
       return OtpResponse(
         success: data['success'] == true,
-        message: data['message'] ?? 'Unknown response from server',
+        message: data['message'] ?? (data['success'] == true ? 'OTP verified' : 'Verification failed'),
         firebaseToken: data['firebaseToken'] as String?,
         uid: data['uid'] as String?,
+      );
+    } on TimeoutException {
+      return OtpResponse(
+        success: false,
+        message: 'Server took too long to respond. Please try again.',
       );
     } catch (e) {
       debugPrint('[OtpService] Error verifying OTP: $e');

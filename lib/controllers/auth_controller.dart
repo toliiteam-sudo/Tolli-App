@@ -137,43 +137,52 @@ class AuthController extends ChangeNotifier {
     _state.phoneError = null;
     notifyListeners();
 
-    if (_state.authMode == 'email') {
-      if (_state.email.trim().isEmpty) {
+    try {
+      if (_state.authMode == 'email') {
+        if (_state.email.trim().isEmpty) {
+          _state.isLoading = false;
+          _state.emailError = 'Please enter your email address';
+          notifyListeners();
+          return false;
+        }
+
+        final response = await OtpService().requestOtp(_state.email.trim());
         _state.isLoading = false;
-        _state.emailError = 'Please enter your email address';
+
+        if (!response.success) {
+          _state.emailError = response.message;
+          notifyListeners();
+          return false;
+        }
+
+        _state.otpError = null;
+        startResendTimer(seconds: 300);
+        _state.currentStep = 2;
         notifyListeners();
-        return false;
-      }
+        return true;
+      } else {
+        if (_state.rawPhoneNumber.trim().isEmpty) {
+          _state.isLoading = false;
+          _state.phoneError = 'Please enter your mobile number';
+          notifyListeners();
+          return false;
+        }
 
-      final response = await OtpService().requestOtp(_state.email.trim());
-      _state.isLoading = false;
-
-      if (!response.success) {
-        _state.emailError = response.message;
-        notifyListeners();
-        return false;
-      }
-
-      _state.otpError = null;
-      startResendTimer(seconds: 300);
-      _state.currentStep = 2;
-      notifyListeners();
-      return true;
-    } else {
-      if (_state.rawPhoneNumber.trim().isEmpty) {
+        await Future.delayed(const Duration(milliseconds: 350));
         _state.isLoading = false;
-        _state.phoneError = 'Please enter your mobile number';
+        _state.otpError = null;
+        startResendTimer(seconds: 23);
+        _state.currentStep = 2;
         notifyListeners();
-        return false;
+        return true;
       }
-
-      await Future.delayed(const Duration(milliseconds: 350));
+    } catch (e) {
+      debugPrint('[AuthController] sendOtp exception: $e');
+      _state.emailError = 'An unexpected error occurred. Please try again.';
+      return false;
+    } finally {
       _state.isLoading = false;
-      _state.otpError = null;
-      startResendTimer(seconds: 23);
-      _state.currentStep = 2;
       notifyListeners();
-      return true;
     }
   }
 
@@ -216,66 +225,75 @@ class AuthController extends ChangeNotifier {
     _state.otpError = null;
     notifyListeners();
 
-    if (_state.authMode == 'email') {
-      final response = await OtpService().verifyOtp(
-        _state.email.trim(),
-        _state.otp.trim(),
-      );
+    try {
+      if (_state.authMode == 'email') {
+        final response = await OtpService().verifyOtp(
+          _state.email.trim(),
+          _state.otp.trim(),
+        );
 
-      if (!response.success) {
-        _state.isLoading = false;
-        _state.otpError = response.message;
-        notifyListeners();
-        return false;
-      }
-
-      // If Firebase Custom Token is provided, authenticate with Firebase Auth
-      if (response.firebaseToken != null && response.firebaseToken!.isNotEmpty) {
-        try {
-          final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
-            response.firebaseToken!,
-          );
-          final user = userCredential.user;
-
-          if (user != null) {
-            final remoteProfile = await _userRepository.getUserProfile(user.uid);
-            if (remoteProfile != null) {
-              _state.firstName = remoteProfile.firstName;
-              _state.lastName = remoteProfile.lastName;
-              _state.username = remoteProfile.username;
-              _state.email = remoteProfile.email;
-              _state.phoneNumber = remoteProfile.phoneNumber;
-              _state.selectedCity = remoteProfile.selectedCity;
-              _state.gender = remoteProfile.gender;
-              _state.avatarUrl = remoteProfile.photoUrl;
-              _state.selectedInterests = List<String>.from(remoteProfile.interests);
-              _state.isProfileComplete = remoteProfile.isProfileComplete;
-
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('tolii_is_profile_complete', remoteProfile.isProfileComplete);
-            } else {
-              _state.isProfileComplete = false;
-            }
-          }
-        } catch (authError) {
-          debugPrint('[AUTH] Firebase signInWithCustomToken error: $authError');
+        if (!response.success) {
+          _state.isLoading = false;
+          _state.otpError = response.message;
+          notifyListeners();
+          return false;
         }
-      }
 
-      _state.isLoading = false;
-      _state.otpError = null;
-      if (!_state.isProfileComplete) {
+        // If Firebase Custom Token is provided, authenticate with Firebase Auth
+        if (response.firebaseToken != null && response.firebaseToken!.isNotEmpty) {
+          try {
+            final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
+              response.firebaseToken!,
+            );
+            final user = userCredential.user;
+
+            if (user != null) {
+              final remoteProfile = await _userRepository.getUserProfile(user.uid);
+              if (remoteProfile != null) {
+                _state.firstName = remoteProfile.firstName;
+                _state.lastName = remoteProfile.lastName;
+                _state.username = remoteProfile.username;
+                _state.email = remoteProfile.email;
+                _state.phoneNumber = remoteProfile.phoneNumber;
+                _state.selectedCity = remoteProfile.selectedCity;
+                _state.gender = remoteProfile.gender;
+                _state.avatarUrl = remoteProfile.photoUrl;
+                _state.selectedInterests = List<String>.from(remoteProfile.interests);
+                _state.isProfileComplete = remoteProfile.isProfileComplete;
+
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('tolii_is_profile_complete', remoteProfile.isProfileComplete);
+              } else {
+                _state.isProfileComplete = false;
+              }
+            }
+          } catch (authError) {
+            debugPrint('[AUTH] Firebase signInWithCustomToken error: $authError');
+          }
+        }
+
+        _state.isLoading = false;
+        _state.otpError = null;
+        if (!_state.isProfileComplete) {
+          _state.currentStep = 3;
+        }
+        notifyListeners();
+        return true;
+      } else {
+        await Future.delayed(const Duration(milliseconds: 350));
+        _state.isLoading = false;
+        _state.otpError = null;
         _state.currentStep = 3;
+        notifyListeners();
+        return true;
       }
-      notifyListeners();
-      return true;
-    } else {
-      await Future.delayed(const Duration(milliseconds: 350));
+    } catch (e) {
+      debugPrint('[AuthController] verifyOtp exception: $e');
+      _state.otpError = 'Verification failed. Please try again.';
+      return false;
+    } finally {
       _state.isLoading = false;
-      _state.otpError = null;
-      _state.currentStep = 3;
       notifyListeners();
-      return true;
     }
   }
 
@@ -287,22 +305,30 @@ class AuthController extends ChangeNotifier {
     _state.isLoading = true;
     notifyListeners();
 
-    if (_state.authMode == 'email') {
-      final response = await OtpService().requestOtp(_state.email.trim());
-      _state.isLoading = false;
+    try {
+      if (_state.authMode == 'email') {
+        final response = await OtpService().requestOtp(_state.email.trim());
+        _state.isLoading = false;
 
-      if (!response.success) {
-        _state.otpError = response.message;
+        if (!response.success) {
+          _state.otpError = response.message;
+          notifyListeners();
+          return;
+        }
+
+        startResendTimer(seconds: 300);
         notifyListeners();
-        return;
+      } else {
+        await Future.delayed(const Duration(milliseconds: 500));
+        _state.isLoading = false;
+        startResendTimer(seconds: 23);
+        notifyListeners();
       }
-
-      startResendTimer(seconds: 300);
-      notifyListeners();
-    } else {
-      await Future.delayed(const Duration(milliseconds: 500));
+    } catch (e) {
+      debugPrint('[AuthController] resendOtp exception: $e');
+      _state.otpError = 'Failed to resend code. Please try again.';
+    } finally {
       _state.isLoading = false;
-      startResendTimer(seconds: 23);
       notifyListeners();
     }
   }
