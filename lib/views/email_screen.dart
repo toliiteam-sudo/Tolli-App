@@ -56,7 +56,9 @@ class _EmailScreenState extends State<EmailScreen> {
     }
 
     final success = await _authController.sendOtp();
-    if (success && mounted) {
+    if (!mounted) return;
+
+    if (success) {
       Navigator.of(context).push(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) => OtpScreen(
@@ -76,6 +78,18 @@ class _EmailScreenState extends State<EmailScreen> {
             );
           },
           transitionDuration: const Duration(milliseconds: 300),
+        ),
+      );
+    } else {
+      final errorMsg = _authController.state.authMode == 'email'
+          ? (_authController.state.emailError ?? 'Failed to send OTP')
+          : (_authController.state.phoneError ?? 'Failed to send OTP');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
