@@ -212,16 +212,31 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch via Gmail SMTP if available, else Resend
+    // Dispatch email — try Gmail SMTP first, auto-fallback to Resend if it fails
+    let emailSent = false;
+
     if (smtpTransporter) {
-      await smtpTransporter.sendMail({
-        from: `"TOLII App" <${SMTP_USER}>`,
-        to: cleanEmail,
-        subject: emailSubject,
-        html: emailHtml
-      });
-      console.log(`[OTP] Dispatched via Gmail SMTP to ${cleanEmail}`);
-    } else if (resend) {
+      try {
+        const smtpTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP timeout after 8s')), 8000)
+        );
+        await Promise.race([
+          smtpTransporter.sendMail({
+            from: `"TOLII App" <${SMTP_USER}>`,
+            to: cleanEmail,
+            subject: emailSubject,
+            html: emailHtml
+          }),
+          smtpTimeout
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
+        emailSent = true;
+      } catch (smtpErr) {
+        console.warn(`[OTP] ⚠️ Gmail SMTP failed (${smtpErr.message}), falling back to Resend...`);
+      }
+    }
+
+    if (!emailSent && resend) {
       const emailResult = await resend.emails.send({
         from: 'TOLII <onboarding@resend.dev>',
         to: cleanEmail,
@@ -231,8 +246,11 @@ app.post('/api/request-otp', async (req, res) => {
       if (emailResult.error) {
         throw new Error(emailResult.error.message || 'Resend error');
       }
-      console.log(`[OTP] Dispatched via Resend to ${cleanEmail}`);
-    } else {
+      console.log(`[OTP] ✅ Dispatched via Resend to ${cleanEmail}`);
+      emailSent = true;
+    }
+
+    if (!emailSent) {
       throw new Error('No email transport configured on server (Neither SMTP nor Resend)');
     }
 
