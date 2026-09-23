@@ -10,28 +10,44 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Initialize Email Transporter (Gmail SMTP / Nodemailer)
-const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null; // e.g. tolii.team@gmail.com
-const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null; // 16-character Google App Password without spaces
+// 1. Initialize Brevo (Sendinblue) SMTP — Free 300 emails/day, any recipient, ~1-2s delivery
+const BREVO_USER = process.env.BREVO_USER ? process.env.BREVO_USER.trim() : null;
+const BREVO_PASS = process.env.BREVO_PASS ? process.env.BREVO_PASS.trim() : null;
+
+let brevoTransporter = null;
+if (BREVO_USER && BREVO_PASS) {
+  brevoTransporter = nodemailer.createTransport({
+    host: 'smtp-relay.brevo.com',
+    port: 587,
+    secure: false,
+    auth: {
+      user: BREVO_USER,
+      pass: BREVO_PASS
+    }
+  });
+  console.log(`[EMAIL] ✅ Brevo SMTP ready for ${BREVO_USER}`);
+}
+
+// 2. Gmail SMTP Fallback (no pool — pool causes hang on Render)
+const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
+const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
 
 let smtpTransporter = null;
 if (SMTP_USER && SMTP_PASS) {
   smtpTransporter = nodemailer.createTransport({
     service: 'gmail',
-    pool: true,
-    maxConnections: 5,
-    maxMessages: 100,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
     }
   });
-  console.log(`[EMAIL] Initialized Lightning Gmail SMTP Transporter for ${SMTP_USER}`);
+  console.log(`[EMAIL] ✅ Gmail SMTP fallback ready for ${SMTP_USER}`);
 }
 
-// 2. Initialize Resend Fallback
+// 3. Initialize Resend Last-Resort Fallback
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+
 
 // 3. Initialize Firebase Admin
 let isFirebaseAdminInitialized = false;
@@ -212,30 +228,46 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — try Gmail SMTP first, auto-fallback to Resend if it fails
+    // Dispatch email — Brevo (fastest) → Gmail → Resend
     let emailSent = false;
+    const dispatchWithTimeout = (sendFn, ms = 8000) => Promise.race([
+      sendFn(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms))
+    ]);
 
-    if (smtpTransporter) {
+    // Attempt 1: Brevo SMTP (free, any recipient, ~1-2s)
+    if (!emailSent && brevoTransporter) {
       try {
-        const smtpTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP timeout after 8s')), 8000)
-        );
-        await Promise.race([
-          smtpTransporter.sendMail({
-            from: `"TOLII App" <${SMTP_USER}>`,
-            to: cleanEmail,
-            subject: emailSubject,
-            html: emailHtml
-          }),
-          smtpTimeout
-        ]);
-        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
+        await dispatchWithTimeout(() => brevoTransporter.sendMail({
+          from: `"TOLII App" <${BREVO_USER}>`,
+          to: cleanEmail,
+          subject: emailSubject,
+          html: emailHtml
+        }));
+        console.log(`[OTP] ✅ Dispatched via Brevo SMTP to ${cleanEmail}`);
         emailSent = true;
-      } catch (smtpErr) {
-        console.warn(`[OTP] ⚠️ Gmail SMTP failed (${smtpErr.message}), falling back to Resend...`);
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Brevo failed (${err.message}), trying Gmail...`);
       }
     }
 
+    // Attempt 2: Gmail SMTP (no pool this time)
+    if (!emailSent && smtpTransporter) {
+      try {
+        await dispatchWithTimeout(() => smtpTransporter.sendMail({
+          from: `"TOLII App" <${SMTP_USER}>`,
+          to: cleanEmail,
+          subject: emailSubject,
+          html: emailHtml
+        }));
+        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Gmail failed (${err.message}), trying Resend...`);
+      }
+    }
+
+    // Attempt 3: Resend (last resort — free tier limited to registered email)
     if (!emailSent && resend) {
       const emailResult = await resend.emails.send({
         from: 'TOLII <onboarding@resend.dev>',
@@ -251,7 +283,7 @@ app.post('/api/request-otp', async (req, res) => {
     }
 
     if (!emailSent) {
-      throw new Error('No email transport configured on server (Neither SMTP nor Resend)');
+      throw new Error('No email transport available. Please check server configuration.');
     }
 
     return res.json({
