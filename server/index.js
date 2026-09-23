@@ -10,27 +10,31 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Brevo Transactional Email HTTP API — Free 300/day, any recipient, no SMTP ports, no IP restriction
-const BREVO_API_KEY = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : null;
+// 1. Mailjet HTTP API — Free 200/day, any recipient, no IP restriction, ~1-2s delivery
+const MAILJET_API_KEY = process.env.MAILJET_API_KEY ? process.env.MAILJET_API_KEY.trim() : null;
+const MAILJET_SECRET_KEY = process.env.MAILJET_SECRET_KEY ? process.env.MAILJET_SECRET_KEY.trim() : null;
 
-async function sendViaBrevoApi(to, subject, htmlContent) {
+async function sendViaMailjet(to, subject, htmlContent) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
-      sender: { email: 'tolii.team@gmail.com', name: 'TOLII App' },
-      to: [{ email: to }],
-      subject: subject,
-      htmlContent: htmlContent
+      Messages: [{
+        From: { Email: 'tolii.team@gmail.com', Name: 'TOLII App' },
+        To: [{ Email: to }],
+        Subject: subject,
+        HTMLPart: htmlContent
+      }]
     });
 
+    const auth = Buffer.from(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`).toString('base64');
+
     const options = {
-      hostname: 'api.brevo.com',
-      path: '/v3/smtp/email',
+      hostname: 'api.mailjet.com',
+      path: '/v3.1/send',
       method: 'POST',
       headers: {
-        'accept': 'application/json',
-        'api-key': BREVO_API_KEY,
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(payload)
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
       }
     };
 
@@ -41,7 +45,7 @@ async function sendViaBrevoApi(to, subject, htmlContent) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve({ success: true });
         } else {
-          reject(new Error(`Brevo API error ${res.statusCode}: ${data}`));
+          reject(new Error(`Mailjet error ${res.statusCode}: ${data}`));
         }
       });
     });
@@ -184,7 +188,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'TOLII OTP Authentication Service',
-    brevoConfigured: !!BREVO_API_KEY,
+    mailjetConfigured: !!(MAILJET_API_KEY && MAILJET_SECRET_KEY),
     resendConfigured: !!resend,
     timestamp: new Date().toISOString()
   });
@@ -234,20 +238,20 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — Brevo HTTP API (primary) → Resend (fallback)
+    // Dispatch email — Mailjet HTTP API (primary) → Resend (fallback)
     let emailSent = false;
 
-    // Attempt 1: Brevo HTTP API (free, any recipient, no IP restriction, ~1-2s)
-    if (!emailSent && BREVO_API_KEY) {
+    // Attempt 1: Mailjet HTTP API (free, any recipient, no IP restriction, ~1-2s)
+    if (!emailSent && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
       try {
         await Promise.race([
-          sendViaBrevoApi(cleanEmail, emailSubject, emailHtml),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Brevo API timeout')), 10000))
+          sendViaMailjet(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Mailjet timeout')), 10000))
         ]);
-        console.log(`[OTP] ✅ Dispatched via Brevo API to ${cleanEmail}`);
+        console.log(`[OTP] ✅ Dispatched via Mailjet to ${cleanEmail}`);
         emailSent = true;
       } catch (err) {
-        console.warn(`[OTP] ⚠️ Brevo API failed (${err.message}), trying Resend...`);
+        console.warn(`[OTP] ⚠️ Mailjet failed (${err.message}), trying Resend...`);
       }
     }
 
