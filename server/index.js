@@ -184,7 +184,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'TOLII OTP Authentication Service',
-    smtpConfigured: !!smtpTransporter,
+    brevoConfigured: !!BREVO_API_KEY,
     resendConfigured: !!resend,
     timestamp: new Date().toISOString()
   });
