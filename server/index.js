@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const https = require('https');
 const { Resend } = require('resend');
 const admin = require('firebase-admin');
 require('dotenv').config();
@@ -10,44 +10,50 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Initialize Brevo (Sendinblue) SMTP — Free 300 emails/day, any recipient, ~1-2s delivery
-const BREVO_USER = process.env.BREVO_USER ? process.env.BREVO_USER.trim() : null;
-const BREVO_PASS = process.env.BREVO_PASS ? process.env.BREVO_PASS.trim() : null;
+// 1. Brevo Transactional Email HTTP API — Free 300/day, any recipient, no SMTP ports, no IP restriction
+const BREVO_API_KEY = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : null;
 
-let brevoTransporter = null;
-if (BREVO_USER && BREVO_PASS) {
-  brevoTransporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: BREVO_USER,
-      pass: BREVO_PASS
-    }
+async function sendViaBrevoApi(to, subject, htmlContent) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({
+      sender: { email: 'tolii.team@gmail.com', name: 'TOLII App' },
+      to: [{ email: to }],
+      subject: subject,
+      htmlContent: htmlContent
+    });
+
+    const options = {
+      hostname: 'api.brevo.com',
+      path: '/v3/smtp/email',
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': BREVO_API_KEY,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve({ success: true });
+        } else {
+          reject(new Error(`Brevo API error ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
   });
-  console.log(`[EMAIL] ✅ Brevo SMTP ready for ${BREVO_USER}`);
 }
 
-// 2. Gmail SMTP Fallback (no pool — pool causes hang on Render)
-const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
-const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
-
-let smtpTransporter = null;
-if (SMTP_USER && SMTP_PASS) {
-  smtpTransporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS
-    }
-  });
-  console.log(`[EMAIL] ✅ Gmail SMTP fallback ready for ${SMTP_USER}`);
-}
-
-// 3. Initialize Resend Last-Resort Fallback
+// 2. Initialize Resend Fallback
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
-
 
 // 3. Initialize Firebase Admin
 let isFirebaseAdminInitialized = false;
@@ -228,46 +234,24 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — Brevo (fastest) → Gmail → Resend
+    // Dispatch email — Brevo HTTP API (primary) → Resend (fallback)
     let emailSent = false;
-    const dispatchWithTimeout = (sendFn, ms = 8000) => Promise.race([
-      sendFn(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms))
-    ]);
 
-    // Attempt 1: Brevo SMTP (free, any recipient, ~1-2s)
-    if (!emailSent && brevoTransporter) {
+    // Attempt 1: Brevo HTTP API (free, any recipient, no IP restriction, ~1-2s)
+    if (!emailSent && BREVO_API_KEY) {
       try {
-        await dispatchWithTimeout(() => brevoTransporter.sendMail({
-          from: `"TOLII App" <${BREVO_USER}>`,
-          to: cleanEmail,
-          subject: emailSubject,
-          html: emailHtml
-        }));
-        console.log(`[OTP] ✅ Dispatched via Brevo SMTP to ${cleanEmail}`);
+        await Promise.race([
+          sendViaBrevoApi(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Brevo API timeout')), 10000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Brevo API to ${cleanEmail}`);
         emailSent = true;
       } catch (err) {
-        console.warn(`[OTP] ⚠️ Brevo failed (${err.message}), trying Gmail...`);
+        console.warn(`[OTP] ⚠️ Brevo API failed (${err.message}), trying Resend...`);
       }
     }
 
-    // Attempt 2: Gmail SMTP (no pool this time)
-    if (!emailSent && smtpTransporter) {
-      try {
-        await dispatchWithTimeout(() => smtpTransporter.sendMail({
-          from: `"TOLII App" <${SMTP_USER}>`,
-          to: cleanEmail,
-          subject: emailSubject,
-          html: emailHtml
-        }));
-        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
-        emailSent = true;
-      } catch (err) {
-        console.warn(`[OTP] ⚠️ Gmail failed (${err.message}), trying Resend...`);
-      }
-    }
-
-    // Attempt 3: Resend (last resort — free tier limited to registered email)
+    // Attempt 2: Resend (last resort)
     if (!emailSent && resend) {
       const emailResult = await resend.emails.send({
         from: 'TOLII <onboarding@resend.dev>',
