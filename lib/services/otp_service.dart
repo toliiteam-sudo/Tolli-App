@@ -22,8 +22,8 @@ abstract class BaseOtpProvider {
 }
 
 class EmailOtpProvider implements BaseOtpProvider {
-  // Default Render deployment URL (or localhost in dev)
-  static String baseUrl = 'https://tolii-otp-api.onrender.com';
+  // Live Render deployment URL
+  static String baseUrl = 'https://tolli-app.onrender.com';
 
   static void setBaseUrl(String url) {
     baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const admin = require('firebase-admin');
 require('dotenv').config();
@@ -9,11 +10,27 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Initialize Resend
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const resend = new Resend(RESEND_API_KEY);
+// 1. Initialize Email Transporter (Gmail SMTP / Nodemailer)
+const SMTP_USER = process.env.SMTP_USER; // e.g. tolii.team@gmail.com
+const SMTP_PASS = process.env.SMTP_PASS; // 16-character Google App Password
 
-// 2. Initialize Firebase Admin
+let smtpTransporter = null;
+if (SMTP_USER && SMTP_PASS) {
+  smtpTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS
+    }
+  });
+  console.log(`[EMAIL] Initialized Gmail SMTP Transporter with user: ${SMTP_USER}`);
+}
+
+// 2. Initialize Resend Fallback
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+
+// 3. Initialize Firebase Admin
 let isFirebaseAdminInitialized = false;
 try {
   if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -32,11 +49,8 @@ try {
   console.warn('Firebase Admin initialization deferred/failed:', e.message);
 }
 
-// 3. In-Memory Store for OTPs and Rate Limiting
-// Store structure: email -> { hash, expiresAt, attempts, lastRequestedAt }
+// 4. In-Memory Store for OTPs and Rate Limiting
 const otpStore = new Map();
-const IP_RATE_LIMIT = new Map(); // ip -> [timestamps]
-
 const OTP_SECRET = process.env.OTP_SECRET || 'tolii_secure_secret_salt_2026';
 const OTP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 const RESEND_COOLDOWN_MS = 60 * 1000; // 60 seconds
@@ -57,11 +71,96 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// Helper to generate aesthetic sports email HTML
+function generateOtpHtml(otp) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>TOLII Verification Code</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #F8FAFC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #F8FAFC; padding: 40px 16px;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" max-width="520px" cellspacing="0" cellpadding="0" border="0" style="max-width: 520px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(6, 62, 158, 0.08); border: 1px solid #E2E8F0;">
+              
+              <!-- Hero Header -->
+              <tr>
+                <td style="background: linear-gradient(135deg, #063E9E 0%, #032561 100%); padding: 36px 32px; text-align: center;">
+                  <div style="display: inline-block; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 12px; padding: 6px 16px; margin-bottom: 14px;">
+                    <span style="font-size: 14px; font-weight: 700; color: #FFFFFF; letter-spacing: 2px; text-transform: uppercase;">⚽ 🏏 🏸 🎾 🚴</span>
+                  </div>
+                  <h1 style="margin: 0; font-size: 32px; font-weight: 900; color: #FFFFFF; letter-spacing: -0.5px;">TOLII</h1>
+                  <p style="margin: 6px 0 0 0; font-size: 14px; color: #BFDBFE; font-weight: 500; letter-spacing: 0.3px;">Play Sports • Meet Players • Join Games</p>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td style="padding: 36px 32px 28px 32px; text-align: center;">
+                  <h2 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 700; color: #0F172A;">Your Login Verification Code</h2>
+                  <p style="margin: 0 0 24px 0; font-size: 15px; color: #64748B; line-height: 1.5;">
+                    Use the 6-digit code below to securely sign in to your TOLII account.
+                  </p>
+
+                  <!-- High-Impact OTP Display Box -->
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto 24px auto;">
+                    <tr>
+                      <td style="background-color: #F0F5FF; border: 2px dashed #063E9E; border-radius: 16px; padding: 22px 16px; text-align: center;">
+                        <span style="font-family: 'Courier New', Courier, monospace, sans-serif; font-size: 38px; font-weight: 800; letter-spacing: 10px; color: #063E9E; display: inline-block; margin-left: 10px;">${otp}</span>
+                      </td>
+                    </tr>
+                  </table>
+
+                  <!-- Expiry & Security Badges -->
+                  <div style="background-color: #FFFBEB; border: 1px solid #FEF3C7; border-radius: 12px; padding: 12px 16px; margin-bottom: 24px; text-align: left;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                      <tr>
+                        <td width="24" valign="top" style="font-size: 16px; line-height: 1;">⏱️</td>
+                        <td style="font-size: 13px; color: #92400E; font-weight: 500; padding-left: 8px;">
+                          This code is valid for <strong>5 minutes</strong> only and can be used once.
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+
+                  <p style="margin: 0; font-size: 13px; color: #94A3B8; line-height: 1.4;">
+                    If you didn't request this verification code, please disregard this email. Your account remains completely safe.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #F8FAFC; border-top: 1px solid #E2E8F0; padding: 20px 32px; text-align: center;">
+                  <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748B; font-weight: 600;">
+                    TOLII Sports Community App
+                  </p>
+                  <p style="margin: 0; font-size: 11px; color: #94A3B8;">
+                    Connecting athletes, turf players & sports lovers everywhere.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+}
+
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'TOLII OTP Authentication Service',
+    smtpConfigured: !!smtpTransporter,
+    resendConfigured: !!resend,
     timestamp: new Date().toISOString()
   });
 });
@@ -78,7 +177,7 @@ app.post('/api/request-otp', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
     const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
-    if (!emailRegex.hasMatch ? !emailRegex.test(cleanEmail) : false) {
+    if (!emailRegex.test(cleanEmail)) {
       return res.status(400).json({ success: false, message: 'Invalid email address format' });
     }
 
@@ -107,103 +206,42 @@ app.post('/api/request-otp', async (req, res) => {
       used: false
     });
 
-    // Send email via Resend with ultra-premium aesthetic sports theme
-    const emailResult = await resend.emails.send({
-      from: 'TOLII <onboarding@resend.dev>',
-      to: cleanEmail,
-      subject: `${otp} is your TOLII verification code`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>TOLII Verification Code</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #F8FAFC; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #F8FAFC; padding: 40px 16px;">
-            <tr>
-              <td align="center">
-                <!-- Main Container -->
-                <table role="presentation" width="100%" max-width="520px" cellspacing="0" cellpadding="0" border="0" style="max-width: 520px; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; box-shadow: 0 10px 30px rgba(6, 62, 158, 0.08); border: 1px solid #E2E8F0;">
-                  
-                  <!-- Top Hero Header with Brand Navy Blue & Sport Emojis -->
-                  <tr>
-                    <td style="background: linear-gradient(135deg, #063E9E 0%, #032561 100%); padding: 36px 32px; text-align: center;">
-                      <div style="display: inline-block; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 12px; padding: 6px 16px; margin-bottom: 14px;">
-                        <span style="font-size: 14px; font-weight: 700; color: #FFFFFF; letter-spacing: 2px; text-transform: uppercase;">⚽ 🏏 🏸 🎾 🚴</span>
-                      </div>
-                      <h1 style="margin: 0; font-size: 32px; font-weight: 900; color: #FFFFFF; letter-spacing: -0.5px;">TOLII</h1>
-                      <p style="margin: 6px 0 0 0; font-size: 14px; color: #BFDBFE; font-weight: 500; letter-spacing: 0.3px;">Play Sports • Meet Players • Join Games</p>
-                    </td>
-                  </tr>
+    const emailSubject = `${otp} is your TOLII verification code`;
+    const emailHtml = generateOtpHtml(otp);
 
-                  <!-- Content Body -->
-                  <tr>
-                    <td style="padding: 36px 32px 28px 32px; text-align: center;">
-                      <h2 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 700; color: #0F172A;">Your Login Verification Code</h2>
-                      <p style="margin: 0 0 24px 0; font-size: 15px; color: #64748B; line-height: 1.5;">
-                        Use the 6-digit code below to securely sign in to your TOLII account.
-                      </p>
+    // Dispatch via Gmail SMTP if available, else Resend
+    if (smtpTransporter) {
+      await smtpTransporter.sendMail({
+        from: `"TOLII App" <${SMTP_USER}>`,
+        to: cleanEmail,
+        subject: emailSubject,
+        html: emailHtml
+      });
+      console.log(`[OTP] Dispatched via Gmail SMTP to ${cleanEmail}`);
+    } else if (resend) {
+      const emailResult = await resend.emails.send({
+        from: 'TOLII <onboarding@resend.dev>',
+        to: cleanEmail,
+        subject: emailSubject,
+        html: emailHtml
+      });
+      if (emailResult.error) {
+        throw new Error(emailResult.error.message || 'Resend error');
+      }
+      console.log(`[OTP] Dispatched via Resend to ${cleanEmail}`);
+    } else {
+      throw new Error('No email transport configured on server (Neither SMTP nor Resend)');
+    }
 
-                      <!-- High-Impact OTP Display Box -->
-                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto 24px auto;">
-                        <tr>
-                          <td style="background-color: #F0F5FF; border: 2px dashed #063E9E; border-radius: 16px; padding: 22px 16px; text-align: center;">
-                            <span style="font-family: 'Courier New', Courier, monospace, sans-serif; font-size: 38px; font-weight: 800; letter-spacing: 10px; color: #063E9E; display: inline-block; margin-left: 10px;">${otp}</span>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Expiry & Security Badges -->
-                      <div style="background-color: #FFFBEB; border: 1px solid #FEF3C7; border-radius: 12px; padding: 12px 16px; margin-bottom: 24px; text-align: left;">
-                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-                          <tr>
-                            <td width="24" valign="top" style="font-size: 16px; line-height: 1;">⏱️</td>
-                            <td style="font-size: 13px; color: #92400E; font-weight: 500; padding-left: 8px;">
-                              This code is valid for <strong>5 minutes</strong> only and can be used once.
-                            </td>
-                          </tr>
-                        </table>
-                      </div>
-
-                      <p style="margin: 0; font-size: 13px; color: #94A3B8; line-height: 1.4;">
-                        If you didn't request this verification code, please disregard this email. Your account remains completely safe.
-                      </p>
-                    </td>
-                  </tr>
-
-                  <!-- Footer -->
-                  <tr>
-                    <td style="background-color: #F8FAFC; border-top: 1px solid #E2E8F0; padding: 20px 32px; text-align: center;">
-                      <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748B; font-weight: 600;">
-                        TOLII Sports Community App
-                      </p>
-                      <p style="margin: 0; font-size: 11px; color: #94A3B8;">
-                        Connecting athletes, turf players & sports lovers everywhere.
-                      </p>
-                    </td>
-                  </tr>
-
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-        </html>
-      `
-    });
-
-    console.log(`[OTP] Successfully dispatched code to ${cleanEmail}`);
     return res.json({
       success: true,
       message: 'OTP sent to your email successfully.'
     });
   } catch (error) {
-    console.error('[OTP Error in /request-otp]:', error);
+    console.error('[OTP Error in /request-otp]:', error.message || error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to send OTP email. Please try again later.'
+      message: `Failed to send email: ${error.message || 'Check server configuration'}`
     });
   }
 });
