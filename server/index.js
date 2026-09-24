@@ -16,10 +16,15 @@ const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
 const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
 
 function createGmailTransport() {
-  // Create a fresh transporter per request (no pool = no stale connections)
+  // Port 465 (SSL) instead of 587 (STARTTLS) — avoids common cloud provider SMTP blocks
   return nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 25000,
   });
 }
 
@@ -260,7 +265,7 @@ app.post('/api/request-otp', async (req, res) => {
             subject: emailSubject,
             html: emailHtml
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail timeout')), 12000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail timeout')), 25000))
         ]);
         transport.close();
         console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
