@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const https = require('https');
+const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 const admin = require('firebase-admin');
 require('dotenv').config();
@@ -10,7 +11,19 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Mailjet HTTP API — Free 200/day, any recipient, no IP restriction, ~1-2s delivery
+// 1. Gmail SMTP (Primary) — NO pool, fresh connection each time
+const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
+const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
+
+function createGmailTransport() {
+  // Create a fresh transporter per request (no pool = no stale connections)
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: SMTP_USER, pass: SMTP_PASS }
+  });
+}
+
+// 2. Mailjet HTTP API fallback
 const MAILJET_API_KEY = process.env.MAILJET_API_KEY ? process.env.MAILJET_API_KEY.trim() : null;
 const MAILJET_SECRET_KEY = process.env.MAILJET_SECRET_KEY ? process.env.MAILJET_SECRET_KEY.trim() : null;
 
@@ -18,15 +31,13 @@ async function sendViaMailjet(to, subject, htmlContent) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify({
       Messages: [{
-        From: { Email: 'tolii.team@gmail.com', Name: 'TOLII App' },
+        From: { Email: SMTP_USER || 'tolii.team@gmail.com', Name: 'TOLII App' },
         To: [{ Email: to }],
         Subject: subject,
         HTMLPart: htmlContent
       }]
     });
-
     const auth = Buffer.from(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`).toString('base64');
-
     const options = {
       hostname: 'api.mailjet.com',
       path: '/v3.1/send',
@@ -37,16 +48,12 @@ async function sendViaMailjet(to, subject, htmlContent) {
         'Content-Length': Buffer.byteLength(payload)
       }
     };
-
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve({ success: true });
-        } else {
-          reject(new Error(`Mailjet error ${res.statusCode}: ${data}`));
-        }
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve({ success: true });
+        else reject(new Error(`Mailjet ${res.statusCode}: ${data}`));
       });
     });
     req.on('error', reject);
@@ -55,9 +62,10 @@ async function sendViaMailjet(to, subject, htmlContent) {
   });
 }
 
-// 2. Initialize Resend Fallback
+// 3. Resend last-resort fallback
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+
 
 // 3. Initialize Firebase Admin
 let isFirebaseAdminInitialized = false;
@@ -238,10 +246,31 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — Mailjet HTTP API (primary) → Resend (fallback)
+    // Dispatch email — Gmail SMTP (primary) → Mailjet → Resend
     let emailSent = false;
 
-    // Attempt 1: Mailjet HTTP API (free, any recipient, no IP restriction, ~1-2s)
+    // Attempt 1: Gmail SMTP — fresh transport per request, no pool, no stale connections
+    if (!emailSent && SMTP_USER && SMTP_PASS) {
+      try {
+        const transport = createGmailTransport();
+        await Promise.race([
+          transport.sendMail({
+            from: `"TOLII App" <${SMTP_USER}>`,
+            to: cleanEmail,
+            subject: emailSubject,
+            html: emailHtml
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail timeout')), 12000))
+        ]);
+        transport.close();
+        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Gmail SMTP failed (${err.message}), trying Mailjet...`);
+      }
+    }
+
+    // Attempt 2: Mailjet HTTP API
     if (!emailSent && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
       try {
         await Promise.race([
@@ -255,7 +284,7 @@ app.post('/api/request-otp', async (req, res) => {
       }
     }
 
-    // Attempt 2: Resend (last resort)
+    // Attempt 3: Resend (last resort — free tier limited to registered email)
     if (!emailSent && resend) {
       const emailResult = await resend.emails.send({
         from: 'TOLII <onboarding@resend.dev>',
