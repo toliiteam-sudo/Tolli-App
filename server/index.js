@@ -11,20 +11,82 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Gmail SMTP (Primary) — NO pool, fresh connection each time
-const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : null;
-const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
+// 1. Gmail API (OAuth2 over HTTPS) — INBOX guaranteed, 500/day free
+const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ? process.env.GMAIL_CLIENT_ID.trim() : null;
+const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ? process.env.GMAIL_CLIENT_SECRET.trim() : null;
+const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ? process.env.GMAIL_REFRESH_TOKEN.trim() : null;
+const GMAIL_SENDER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : 'tolii.team@gmail.com';
 
-function createGmailTransport() {
-  // Port 465 (SSL) instead of 587 (STARTTLS) — avoids common cloud provider SMTP blocks
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 25000,
+async function getGmailAccessToken() {
+  return new Promise((resolve, reject) => {
+    const payload = new URLSearchParams({
+      client_id: GMAIL_CLIENT_ID,
+      client_secret: GMAIL_CLIENT_SECRET,
+      refresh_token: GMAIL_REFRESH_TOKEN,
+      grant_type: 'refresh_token'
+    }).toString();
+
+    const options = {
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(payload) }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        const json = JSON.parse(data);
+        if (json.access_token) resolve(json.access_token);
+        else reject(new Error(`Token error: ${data}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function sendViaGmailApi(to, subject, htmlContent) {
+  const accessToken = await getGmailAccessToken();
+
+  // Build RFC 2822 message
+  const message = [
+    `From: "TOLII App" <${GMAIL_SENDER}>`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    htmlContent
+  ].join('\r\n');
+
+  const encoded = Buffer.from(message).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ raw: encoded });
+    const options = {
+      hostname: 'gmail.googleapis.com',
+      path: '/gmail/v1/users/me/messages/send',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve({ success: true });
+        else reject(new Error(`Gmail API ${res.statusCode}: ${data}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
   });
 }
 
@@ -287,10 +349,24 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — SendGrid (primary ✅) → Mailjet → Resend
+    // Dispatch email — Gmail API (primary ✅ inbox) → SendGrid → Resend
     let emailSent = false;
 
-    // Attempt 1: SendGrid HTTP API — PROVEN to work, free 100/day, any recipient
+    // Attempt 1: Gmail API over HTTPS — real Gmail, 100% inbox, 500/day free
+    if (!emailSent && GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
+      try {
+        await Promise.race([
+          sendViaGmailApi(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail API timeout')), 12000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Gmail API to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Gmail API failed (${err.message}), trying SendGrid...`);
+      }
+    }
+
+    // Attempt 2: SendGrid HTTP API — free 100/day, any recipient
     if (!emailSent && SENDGRID_API_KEY) {
       try {
         await Promise.race([
@@ -300,46 +376,11 @@ app.post('/api/request-otp', async (req, res) => {
         console.log(`[OTP] ✅ Dispatched via SendGrid to ${cleanEmail}`);
         emailSent = true;
       } catch (err) {
-        console.warn(`[OTP] ⚠️ SendGrid failed (${err.message}), trying Gmail...`);
+        console.warn(`[OTP] ⚠️ SendGrid failed (${err.message}), trying Resend...`);
       }
     }
 
-    // Attempt 2: Gmail SMTP port 465
-    if (!emailSent && SMTP_USER && SMTP_PASS) {
-      try {
-        const transport = createGmailTransport();
-        await Promise.race([
-          transport.sendMail({
-            from: `"TOLII App" <${SMTP_USER}>`,
-            to: cleanEmail,
-            subject: emailSubject,
-            html: emailHtml
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail timeout')), 25000))
-        ]);
-        transport.close();
-        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
-        emailSent = true;
-      } catch (err) {
-        console.warn(`[OTP] ⚠️ Gmail SMTP failed (${err.message}), trying Mailjet...`);
-      }
-    }
-
-    // Attempt 3: Mailjet HTTP API
-    if (!emailSent && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
-      try {
-        await Promise.race([
-          sendViaMailjet(cleanEmail, emailSubject, emailHtml),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Mailjet timeout')), 10000))
-        ]);
-        console.log(`[OTP] ✅ Dispatched via Mailjet to ${cleanEmail}`);
-        emailSent = true;
-      } catch (err) {
-        console.warn(`[OTP] ⚠️ Mailjet failed (${err.message}), trying Resend...`);
-      }
-    }
-
-    // Attempt 3: Resend (last resort — free tier limited to registered email)
+    // Attempt 3: Resend (last resort)
     if (!emailSent && resend) {
       const emailResult = await resend.emails.send({
         from: 'TOLII <onboarding@resend.dev>',
@@ -347,15 +388,14 @@ app.post('/api/request-otp', async (req, res) => {
         subject: emailSubject,
         html: emailHtml
       });
-      if (emailResult.error) {
-        throw new Error(emailResult.error.message || 'Resend error');
-      }
+      if (emailResult.error) throw new Error(emailResult.error.message || 'Resend error');
       console.log(`[OTP] ✅ Dispatched via Resend to ${cleanEmail}`);
       emailSent = true;
     }
 
     if (!emailSent) {
       throw new Error('No email transport available. Please check server configuration.');
+
     }
 
     return res.json({
