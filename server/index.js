@@ -28,6 +28,42 @@ function createGmailTransport() {
   });
 }
 
+// 2. SendGrid HTTP API — Free 100/day, any recipient, no IP restriction, HTTPS only
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY ? process.env.SENDGRID_API_KEY.trim() : null;
+
+async function sendViaSendGrid(to, subject, htmlContent) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: SMTP_USER || 'tolii.team@gmail.com', name: 'TOLII App' },
+      subject: subject,
+      content: [{ type: 'text/html', value: htmlContent }]
+    });
+    const options = {
+      hostname: 'api.sendgrid.com',
+      path: '/v3/mail/send',
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        // SendGrid returns 202 on success (no body)
+        if (res.statusCode === 202) resolve({ success: true });
+        else reject(new Error(`SendGrid ${res.statusCode}: ${data}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // 2. Mailjet HTTP API fallback
 const MAILJET_API_KEY = process.env.MAILJET_API_KEY ? process.env.MAILJET_API_KEY.trim() : null;
 const MAILJET_SECRET_KEY = process.env.MAILJET_SECRET_KEY ? process.env.MAILJET_SECRET_KEY.trim() : null;
@@ -251,10 +287,24 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — Gmail SMTP (primary) → Mailjet → Resend
+    // Dispatch email — SendGrid (primary ✅) → Mailjet → Resend
     let emailSent = false;
 
-    // Attempt 1: Gmail SMTP — fresh transport per request, no pool, no stale connections
+    // Attempt 1: SendGrid HTTP API — PROVEN to work, free 100/day, any recipient
+    if (!emailSent && SENDGRID_API_KEY) {
+      try {
+        await Promise.race([
+          sendViaSendGrid(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SendGrid timeout')), 10000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via SendGrid to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ SendGrid failed (${err.message}), trying Gmail...`);
+      }
+    }
+
+    // Attempt 2: Gmail SMTP port 465
     if (!emailSent && SMTP_USER && SMTP_PASS) {
       try {
         const transport = createGmailTransport();
@@ -275,7 +325,7 @@ app.post('/api/request-otp', async (req, res) => {
       }
     }
 
-    // Attempt 2: Mailjet HTTP API
+    // Attempt 3: Mailjet HTTP API
     if (!emailSent && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
       try {
         await Promise.race([
