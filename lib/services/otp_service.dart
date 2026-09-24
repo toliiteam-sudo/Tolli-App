@@ -18,6 +18,7 @@ class OtpResponse {
 }
 
 abstract class BaseOtpProvider {
+  Future<void> warmUp();
   Future<OtpResponse> requestOtp(String target);
   Future<OtpResponse> verifyOtp(String target, String otp);
 }
@@ -31,13 +32,22 @@ class EmailOtpProvider implements BaseOtpProvider {
   }
 
   @override
+  Future<void> warmUp() async {
+    try {
+      await http.get(Uri.parse('$baseUrl/')).timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Silent catch for background server wake-up ping
+    }
+  }
+
+  @override
   Future<OtpResponse> requestOtp(String email) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/api/request-otp'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email.trim()}),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 40));
 
       final Map<String, dynamic> data = jsonDecode(response.body);
       return OtpResponse(
@@ -68,7 +78,7 @@ class EmailOtpProvider implements BaseOtpProvider {
           'email': email.trim(),
           'otp': otp.trim(),
         }),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 30));
 
       final Map<String, dynamic> data = jsonDecode(response.body);
       return OtpResponse(
@@ -102,6 +112,10 @@ class OtpService {
 
   void setProvider(BaseOtpProvider provider) {
     _provider = provider;
+  }
+
+  void warmUp() {
+    _provider.warmUp();
   }
 
   Future<OtpResponse> requestOtp(String destination) {

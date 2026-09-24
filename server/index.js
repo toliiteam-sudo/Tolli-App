@@ -15,7 +15,8 @@ app.use(cors());
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ? process.env.GMAIL_CLIENT_ID.trim() : null;
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ? process.env.GMAIL_CLIENT_SECRET.trim() : null;
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ? process.env.GMAIL_REFRESH_TOKEN.trim() : null;
-const GMAIL_SENDER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : 'tolii.team@gmail.com';
+const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : 'tolii.team@gmail.com';
+const GMAIL_SENDER = SMTP_USER;
 
 async function getGmailAccessToken() {
   return new Promise((resolve, reject) => {
@@ -299,6 +300,8 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'TOLII OTP Authentication Service',
+    gmailConfigured: !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN),
+    sendgridConfigured: !!SENDGRID_API_KEY,
     mailjetConfigured: !!(MAILJET_API_KEY && MAILJET_SECRET_KEY),
     resendConfigured: !!resend,
     timestamp: new Date().toISOString()

@@ -3,6 +3,7 @@ import '../constants/app_assets.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
 import '../controllers/auth_controller.dart';
+import '../services/otp_service.dart';
 import '../widgets/auth_step_progress.dart';
 import '../widgets/custom_button.dart';
 import 'home_screen.dart';
@@ -34,6 +35,8 @@ class _EmailScreenState extends State<EmailScreen> {
     _textController = TextEditingController(
       text: _authController.state.email,
     );
+    // Pre-warm the backend so OTP requests are instant
+    OtpService().warmUp();
   }
 
   @override

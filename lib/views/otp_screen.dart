@@ -6,6 +6,7 @@ import '../widgets/auth_step_progress.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/otp_pin_input.dart';
 import 'email_screen.dart';
+import 'home_screen.dart';
 import 'location_screen.dart';
 
 class OtpScreen extends StatefulWidget {
@@ -34,28 +35,42 @@ class _OtpScreenState extends State<OtpScreen> {
 
     final success = await _controller.verifyOtp();
     if (success && mounted) {
-      Navigator.of(context).push(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              LocationScreen(
-            authController: _controller,
+      if (_controller.state.isProfileComplete) {
+        Navigator.of(context).pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const HomeScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 300),
           ),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final curvedAnimation = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            );
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(curvedAnimation),
-              child: child,
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 300),
-        ),
-      );
+          (route) => false,
+        );
+      } else {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                LocationScreen(
+              authController: _controller,
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final curvedAnimation = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              );
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0.0),
+                  end: Offset.zero,
+                ).animate(curvedAnimation),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      }
     }
   }
 

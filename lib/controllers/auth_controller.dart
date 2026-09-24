@@ -156,7 +156,7 @@ class AuthController extends ChangeNotifier {
         }
 
         _state.otpError = null;
-        startResendTimer(seconds: 300);
+        startResendTimer(seconds: 60);
         _state.currentStep = 2;
         notifyListeners();
         return true;
@@ -316,7 +316,7 @@ class AuthController extends ChangeNotifier {
           return;
         }
 
-        startResendTimer(seconds: 300);
+        startResendTimer(seconds: 60);
         notifyListeners();
       } else {
         await Future.delayed(const Duration(milliseconds: 500));
