@@ -11,12 +11,27 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 1. Gmail API (OAuth2 over HTTPS) — INBOX guaranteed, 500/day free
+// 1. Gmail SMTP (App Password over SSL Port 465) — 100% RELIABLE, PERMANENT, ZERO EXPIRY
+const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : 'tolii.team@gmail.com';
+const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : null;
+const GMAIL_SENDER = SMTP_USER;
+
+function createGmailTransport() {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  });
+}
+
+// 2. Gmail API (OAuth2 over HTTPS) — INBOX guaranteed, 500/day free
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ? process.env.GMAIL_CLIENT_ID.trim() : null;
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ? process.env.GMAIL_CLIENT_SECRET.trim() : null;
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ? process.env.GMAIL_REFRESH_TOKEN.trim() : null;
-const SMTP_USER = process.env.SMTP_USER ? process.env.SMTP_USER.trim() : 'tolii.team@gmail.com';
-const GMAIL_SENDER = SMTP_USER;
 
 async function getGmailAccessToken() {
   return new Promise((resolve, reject) => {
@@ -127,7 +142,43 @@ async function sendViaSendGrid(to, subject, htmlContent) {
   });
 }
 
-// 2. Mailjet HTTP API fallback
+// 3. Brevo HTTP API (Permanent, free 300/day, no IP restrictions)
+const BREVO_API_KEY = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.trim() : null;
+
+async function sendViaBrevoApi(to, subject, htmlContent) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({
+      sender: { email: SMTP_USER || 'tolii.team@gmail.com', name: 'TOLII App' },
+      to: [{ email: to }],
+      subject: subject,
+      htmlContent: htmlContent
+    });
+    const options = {
+      hostname: 'api.brevo.com',
+      path: '/v3/smtp/email',
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': BREVO_API_KEY,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve({ success: true });
+        else reject(new Error(`Brevo API ${res.statusCode}: ${data}`));
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+// 4. Mailjet HTTP API fallback
 const MAILJET_API_KEY = process.env.MAILJET_API_KEY ? process.env.MAILJET_API_KEY.trim() : null;
 const MAILJET_SECRET_KEY = process.env.MAILJET_SECRET_KEY ? process.env.MAILJET_SECRET_KEY.trim() : null;
 
@@ -300,7 +351,9 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'TOLII OTP Authentication Service',
-    gmailConfigured: !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN),
+    gmailSmtpConfigured: !!(SMTP_USER && SMTP_PASS),
+    brevoConfigured: !!BREVO_API_KEY,
+    gmailApiConfigured: !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN),
     sendgridConfigured: !!SENDGRID_API_KEY,
     mailjetConfigured: !!(MAILJET_API_KEY && MAILJET_SECRET_KEY),
     resendConfigured: !!resend,
@@ -352,10 +405,45 @@ app.post('/api/request-otp', async (req, res) => {
     const emailSubject = `${otp} is your TOLII verification code`;
     const emailHtml = generateOtpHtml(otp);
 
-    // Dispatch email — Gmail API (primary ✅ inbox) → SendGrid → Resend
+    // Dispatch email — Gmail SMTP (App Password) → Brevo → Gmail API → SendGrid → Mailjet → Resend
     let emailSent = false;
 
-    // Attempt 1: Gmail API over HTTPS — real Gmail, 100% inbox, 500/day free
+    // Attempt 1: Gmail SMTP (App Password port 465 SSL) — 100% reliable, permanent, never expires!
+    if (!emailSent && SMTP_USER && SMTP_PASS) {
+      try {
+        const transport = createGmailTransport();
+        await Promise.race([
+          transport.sendMail({
+            from: `"TOLII App" <${SMTP_USER}>`,
+            to: cleanEmail,
+            subject: emailSubject,
+            html: emailHtml
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail SMTP timeout')), 15000))
+        ]);
+        transport.close();
+        console.log(`[OTP] ✅ Dispatched via Gmail SMTP to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Gmail SMTP failed (${err.message}), trying Brevo...`);
+      }
+    }
+
+    // Attempt 2: Brevo HTTP API (Free 300/day, permanent)
+    if (!emailSent && BREVO_API_KEY) {
+      try {
+        await Promise.race([
+          sendViaBrevoApi(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Brevo timeout')), 10000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Brevo API to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Brevo API failed (${err.message}), trying Gmail API...`);
+      }
+    }
+
+    // Attempt 3: Gmail API over HTTPS — OAuth2
     if (!emailSent && GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
       try {
         await Promise.race([
@@ -369,7 +457,7 @@ app.post('/api/request-otp', async (req, res) => {
       }
     }
 
-    // Attempt 2: SendGrid HTTP API — free 100/day, any recipient
+    // Attempt 4: SendGrid HTTP API — free 100/day, any recipient
     if (!emailSent && SENDGRID_API_KEY) {
       try {
         await Promise.race([
@@ -379,21 +467,39 @@ app.post('/api/request-otp', async (req, res) => {
         console.log(`[OTP] ✅ Dispatched via SendGrid to ${cleanEmail}`);
         emailSent = true;
       } catch (err) {
-        console.warn(`[OTP] ⚠️ SendGrid failed (${err.message}), trying Resend...`);
+        console.warn(`[OTP] ⚠️ SendGrid failed (${err.message}), trying Mailjet...`);
       }
     }
 
-    // Attempt 3: Resend (last resort)
+    // Attempt 5: Mailjet HTTP API
+    if (!emailSent && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
+      try {
+        await Promise.race([
+          sendViaMailjet(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Mailjet timeout')), 10000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Mailjet to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Mailjet failed (${err.message}), trying Resend...`);
+      }
+    }
+
+    // Attempt 6: Resend (last resort)
     if (!emailSent && resend) {
-      const emailResult = await resend.emails.send({
-        from: 'TOLII <onboarding@resend.dev>',
-        to: cleanEmail,
-        subject: emailSubject,
-        html: emailHtml
-      });
-      if (emailResult.error) throw new Error(emailResult.error.message || 'Resend error');
-      console.log(`[OTP] ✅ Dispatched via Resend to ${cleanEmail}`);
-      emailSent = true;
+      try {
+        const emailResult = await resend.emails.send({
+          from: 'TOLII <onboarding@resend.dev>',
+          to: cleanEmail,
+          subject: emailSubject,
+          html: emailHtml
+        });
+        if (emailResult.error) throw new Error(emailResult.error.message || 'Resend error');
+        console.log(`[OTP] ✅ Dispatched via Resend to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Resend failed (${err.message})`);
+      }
     }
 
     if (!emailSent) {
