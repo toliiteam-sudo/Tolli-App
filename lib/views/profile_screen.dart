@@ -1,12 +1,20 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
 import '../controllers/activities_controller.dart';
+import '../controllers/auth_controller.dart';
 import '../models/activity_model.dart';
+import '../widgets/toli_confirmation_dialog.dart';
+import '../widgets/toli_header.dart';
+import '../widgets/toli_refresh_indicator.dart';
+import '../utils/app_transitions.dart';
 import 'activity_detail_screen.dart';
 import 'edit_profile_screen.dart';
+import 'my_games_screen.dart';
 import 'welcome_screen.dart';
+import '../widgets/profile_fitness_card.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -16,207 +24,68 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _selectedSport = 'Cricket';
-  final List<String> _sports = ['Cricket', 'Badminton', 'Football', 'Pickleball'];
-
-  String _userName = 'Arjun Mehta';
-  final String _userHandle = '@arjunm';
-  final String _userLocation = 'Mumbai, India';
-
   void _openEditProfile() async {
     HapticFeedback.lightImpact();
-    final nameParts = _userName.split(' ');
-    final firstName = nameParts.isNotEmpty ? nameParts[0] : 'Arjun';
-    final lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : 'Mehta';
-
+    final state = AuthController.instance.state;
     final result = await Navigator.of(context).push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => EditProfileScreen(
-          initialFirstName: firstName,
-          initialLastName: lastName,
+      AppTransitions.slidePageRoute(
+        EditProfileScreen(
+          initialFirstName: state.firstName,
+          initialLastName: state.lastName,
+          initialUsername: state.username,
+          initialEmail: state.email,
+          initialPhone: state.phoneNumber,
+          initialLocation: state.selectedCity.isNotEmpty ? state.selectedCity : 'Bhavnagar, India',
+          initialGender: state.gender ?? 'Male',
+          initialProfileImagePath: state.profileImagePath,
+          initialInterestedActivities: state.selectedInterests,
         ),
       ),
     );
 
     if (result != null && mounted) {
-      setState(() {
-        _userName = '${result['firstName']} ${result['lastName']}'.trim();
-      });
+      await AuthController.instance.saveProfile(
+        firstName: result['firstName'],
+        lastName: result['lastName'],
+        email: result['email'],
+        phone: result['phone'],
+        location: result['location'],
+        gender: result['gender'],
+        profileImagePath: result['profileImagePath'],
+        interestedActivities: result['interestedActivities'] != null
+            ? List<String>.from(result['interestedActivities'])
+            : null,
+      );
+      setState(() {});
     }
   }
 
   void _openActivityDetail(ActivityModel activity) {
     HapticFeedback.lightImpact();
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ActivityDetailScreen(activity: activity),
+      AppTransitions.slidePageRoute(
+        ActivityDetailScreen(activity: activity),
       ),
     );
   }
 
-  void _openGoogleFitSheet() {
-    HapticFeedback.lightImpact();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          padding: EdgeInsets.fromLTRB(24, 14, 24, MediaQuery.of(ctx).padding.bottom + 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF7ED),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.local_fire_department_rounded,
-                      color: Color(0xFFEA580C),
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Google Fit Integration',
-                          style: AppTypography.headline.copyWith(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Sync workout and health metrics',
-                          style: AppTypography.caption.copyWith(
-                            fontSize: 12.5,
-                            color: const Color(0xFF64748B),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Connecting your Google Fit tracks your active minutes, calorie burn, and match intensity across all your activities automatically.',
-                style: AppTypography.bodySubtitle.copyWith(
-                  fontSize: 13.5,
-                  height: 1.5,
-                  color: const Color(0xFF475569),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Not Now', style: TextStyle(color: Color(0xFF475569), fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Google Fit connected successfully!'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
-                      },
-                      child: const Text('Connect', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   void _showLogoutDialog() {
-    HapticFeedback.lightImpact();
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text(
-            'Log Out',
-            style: AppTypography.headline.copyWith(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0F172A),
-            ),
-          ),
-          content: Text(
-            'Are you sure you want to log out of Tolii?',
-            style: AppTypography.bodySubtitle.copyWith(
-              fontSize: 14,
-              color: const Color(0xFF64748B),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-                  (route) => false,
-                );
-              },
-              child: const Text(
-                'Log Out',
-                style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        );
+    HapticFeedback.heavyImpact();
+    ToliConfirmationDialog.show(
+      context,
+      icon: Icons.logout_rounded,
+      title: 'Log Out',
+      message: 'Are you sure you want to log out of Tolii?',
+      confirmText: 'Log Out',
+      isDestructive: true,
+      onConfirm: () async {
+        await AuthController.instance.signOut();
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+            (route) => false,
+          );
+        }
       },
     );
   }
@@ -225,218 +94,236 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final controller = ActivitiesController();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
         bottom: false,
         child: ListenableBuilder(
-          listenable: controller,
+          listenable: AuthController.instance,
           builder: (context, _) {
-            final userGames = controller.userActivities;
+            final authState = AuthController.instance.state;
+            final fullName = authState.displayName;
+            final username = authState.username.isNotEmpty ? authState.username : 'user';
+            final location = authState.selectedCity.isNotEmpty ? authState.selectedCity : 'Bhavnagar, India';
+            final localPath = authState.profileImagePath;
+            final networkUrl = authState.effectiveAvatarUrl;
+            final interestedActivities = authState.selectedInterests;
 
-            return SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 1. Top Header: "My Profile" + Settings Gear Button
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'My Profile',
-                        style: AppTypography.headline.copyWith(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF0F172A),
-                          letterSpacing: -0.3,
+            Widget avatarWidget;
+            if (localPath != null && localPath.isNotEmpty && File(localPath).existsSync()) {
+              avatarWidget = Image.file(
+                File(localPath),
+                width: 64,
+                height: 64,
+                fit: BoxFit.cover,
+              );
+            } else if (networkUrl != null && networkUrl.isNotEmpty && networkUrl.startsWith('http')) {
+              avatarWidget = Image.network(
+                networkUrl,
+                width: 64,
+                height: 64,
+                fit: BoxFit.cover,
+                errorBuilder: (ctx, err, stack) => Text(
+                  fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U',
+                  style: AppTypography.headline.copyWith(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              );
+            } else {
+              avatarWidget = Text(
+                fullName.isNotEmpty ? fullName[0].toUpperCase() : 'U',
+                style: AppTypography.headline.copyWith(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              );
+            }
+
+            return ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) {
+                final userGames = controller.userActivities;
+
+                return ToliRefreshIndicator(
+                  onRefresh: () async {
+                    await Future.delayed(const Duration(milliseconds: 1000));
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: ClampingScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 1. Top Header Bar (Using global ToliHeader)
+                        ToliHeader(
+                          title: 'My Profile',
+                          subtitle: location.split(',').first.trim(),
+                          showAvatar: false,
+                          customAction: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _openEditProfile,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                  width: 1.2,
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x06000000),
+                                    blurRadius: 6,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              alignment: Alignment.center,
+                              child: const Icon(
+                                Icons.settings_outlined,
+                                size: 22,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                      GestureDetector(
-                        onTap: _openEditProfile,
-                        child: Container(
-                          width: 40,
-                          height: 40,
+                        const SizedBox(height: 20),
+
+                        // 2. User Identity Card (Screenshot 1: Soft Light Blue Background Card)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
+                            color: const Color(0xFFEEF4FF),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              // Avatar Circle
+                              Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: const Color(0xFF2563EB),
+                                  border: Border.all(color: Colors.white, width: 2.5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                alignment: Alignment.center,
+                                child: ClipOval(child: avatarWidget),
+                              ),
+                              const SizedBox(width: 14),
+
+                              // User Info (Name, Handle, Location)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      fullName,
+                                      style: AppTypography.titleLarge.copyWith(
+                                        fontSize: 17.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF0F172A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '@$username',
+                                      style: AppTypography.caption.copyWith(
+                                        fontSize: 13,
+                                        color: const Color(0xFF64748B),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.location_on_rounded,
+                                          size: 14,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          location,
+                                          style: AppTypography.caption.copyWith(
+                                            fontSize: 12,
+                                            color: const Color(0xFF64748B),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.settings_outlined,
-                            size: 20,
-                            color: Color(0xFF0F172A),
-                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-                  // 2. Profile Identity Card (Screenshot 3)
-                  Row(
-                    children: [
-                      // Avatar
-                      Container(
-                        width: 68,
-                        height: 68,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF2563EB),
-                          border: Border.all(color: Colors.white, width: 2.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _userName.isNotEmpty ? _userName[0] : 'A',
-                          style: AppTypography.headline.copyWith(
-                            fontSize: 26,
+                        // 3. MY SPORTS Section (Screenshot 1)
+                        Text(
+                          'MY SPORTS',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 11.5,
                             fontWeight: FontWeight.w800,
-                            color: Colors.white,
+                            letterSpacing: 0.6,
+                            color: const Color(0xFF64748B),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-
-                      // User Info
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _userName,
-                              style: AppTypography.titleLarge.copyWith(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _userHandle,
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 13,
-                                color: const Color(0xFF64748B),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.location_on_rounded,
-                                  size: 14,
-                                  color: Color(0xFF94A3B8),
+                        const SizedBox(height: 12),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          child: Row(
+                            children: interestedActivities.map((sport) {
+                              return Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEFF6FF),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: const Color(0xFFDBEAFE), width: 1.0),
                                 ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  _userLocation,
+                                child: Text(
+                                  sport,
                                   style: AppTypography.caption.copyWith(
-                                    fontSize: 12,
-                                    color: const Color(0xFF64748B),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ],
+                              );
+                            }).toList(),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 20),
 
-                  // 3. Stats Row Card (42 PLAYED · 18 WINS · ⭐ 4.8 RATING)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        _buildStatColumn('42', 'PLAYED'),
-                        _buildStatDivider(),
-                        _buildStatColumn('18', 'WINS'),
-                        _buildStatDivider(),
-                        _buildStatColumn('4.8', 'RATING', isRating: true),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // 4. MY SPORTS Section
-                  Text(
-                    'MY SPORTS',
-                    style: AppTypography.caption.copyWith(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.6,
-                      color: const Color(0xFF64748B),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: Row(
-                      children: _sports.map((sport) {
-                        final isSelected = sport == _selectedSport;
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedSport = sport;
-                            });
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            margin: const EdgeInsets.only(right: 10),
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8.5),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppColors.primary
-                                  : const Color(0xFFEEF4FF),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              sport,
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: isSelected
-                                    ? Colors.white
-                                    : const Color(0xFF2563EB),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-
-                  // 5. Active Level Card
+                  // 4. Active Level Card (Screenshot 1)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -515,73 +402,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
 
-                  // 6. Link your Google Fit Card
-                  GestureDetector(
-                    onTap: _openGoogleFitSheet,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.02),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7ED),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.local_fire_department_rounded,
-                              color: Color(0xFFF97316),
-                              size: 26,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Link your Google Fit',
-                                  style: AppTypography.titleMedium.copyWith(
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF0F172A),
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Set a goal for yourself and track your progress on a weekly basis',
-                                  style: AppTypography.caption.copyWith(
-                                    fontSize: 11.5,
-                                    height: 1.35,
-                                    color: const Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
+                  // 5. Fitness Section
+                  const ProfileFitnessCard(),
+                  const SizedBox(height: 20),
 
-                  // 7. Upcoming Games (Screenshot 3 & Host Wiring)
+                  // 6. Upcoming Games (Screenshot 1)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -594,7 +421,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                       GestureDetector(
-                        onTap: () {},
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const MyGamesScreen()),
+                          );
+                        },
                         child: Text(
                           'See all',
                           style: AppTypography.caption.copyWith(
@@ -608,7 +440,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 14),
 
-                  // Games List
+                  // Games List Cards
                   ...userGames.map((game) {
                     final parts = game.subtitle.split(' · ');
                     final timeText = parts.length > 1 ? '${parts[0]} · ${parts[1]}' : game.subtitle;
@@ -711,7 +543,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             // Players & Progress
                             Row(
                               children: [
-                                // Mini avatar stack
                                 SizedBox(
                                   width: 32,
                                   height: 20,
@@ -751,7 +582,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const Spacer(),
 
-                                // Progress Indicator Pill
                                 Container(
                                   width: 80,
                                   height: 5,
@@ -779,7 +609,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   }),
                   const SizedBox(height: 20),
 
-                  // 8. Recent Activity (Screenshot 4)
+                  // 7. Recent Activity (Screenshot 1)
                   Text(
                     'Recent Activity',
                     style: AppTypography.headline.copyWith(
@@ -804,131 +634,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Joined Pickleball group',
                     subtitle: '1 week ago',
                   ),
-                  const SizedBox(height: 24),
-
-                  // 9. Squads (Screenshot 4)
-                  Text(
-                    'Squads',
-                    style: AppTypography.headline.copyWith(
-                      fontSize: 17.5,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      // Squad Card 1
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.02),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 38,
-                                height: 38,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF0A2540),
-                                  shape: BoxShape.circle,
-                                ),
-                                alignment: Alignment.center,
-                                child: const Icon(
-                                  Icons.sports_cricket_rounded,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Mumbai Cricket Club',
-                                      style: AppTypography.titleMedium.copyWith(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFF0F172A),
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 1),
-                                    Text(
-                                      'Gota · 181 Members',
-                                      style: AppTypography.caption.copyWith(
-                                        fontSize: 11,
-                                        color: const Color(0xFF64748B),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-
-                      // Squad Badge 2
-                      Container(
-                        width: 50,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.02),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Container(
-                          width: 34,
-                          height: 34,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF94A3B8),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.shield_outlined,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 28),
 
-                  // 10. Log Out Button (Screenshot 4)
+                  // 8. Solid Red Log Out Button (Screenshot 1)
                   GestureDetector(
                     onTap: _showLogoutDialog,
                     child: Container(
                       width: double.infinity,
                       height: 50,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFDC2626), // Solid red
+                        color: const Color(0xFFDC2626),
                         borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFDC2626).withValues(alpha: 0.28),
+                            color: const Color(0xFFDC2626).withValues(alpha: 0.25),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -938,72 +657,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: Text(
                         'Log Out',
                         style: AppTypography.buttonText.copyWith(
-                          fontSize: 15.5,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: Colors.white,
                         ),
                       ),
                     ),
                   ),
-
-                  // Extra bottom padding to clear CustomBottomNavBar
-                  SizedBox(height: MediaQuery.of(context).padding.bottom + 90),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 100),
                 ],
               ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatColumn(String value, String label, {bool isRating = false}) {
-    return Expanded(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isRating) ...[
-                const Icon(
-                  Icons.star_rounded,
-                  color: Color(0xFFF59E0B),
-                  size: 20,
-                ),
-                const SizedBox(width: 3),
-              ],
-              Text(
-                value,
-                style: AppTypography.headline.copyWith(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0F172A),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: const Color(0xFF64748B),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatDivider() {
-    return Container(
-      width: 1,
-      height: 32,
-      color: const Color(0xFFE2E8F0),
-    );
-  }
+          );
+        },
+      );
+    },
+  ),
+),
+),
+);
+}
 
   Widget _buildActiveLevelItem({
     required IconData icon,
@@ -1014,14 +687,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Icon(
           icon,
-          size: 22,
+          size: 20,
           color: isActive ? AppColors.primary : const Color(0xFF94A3B8),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           label,
           style: AppTypography.caption.copyWith(
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
             color: isActive ? AppColors.primary : const Color(0xFF64748B),
           ),
@@ -1038,10 +711,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String subtitle,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -1054,13 +727,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
               color: iconBgColor,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: iconColor, size: 20),
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 22,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1070,7 +748,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Text(
                   title,
                   style: AppTypography.titleMedium.copyWith(
-                    fontSize: 14,
+                    fontSize: 14.5,
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF0F172A),
                   ),

@@ -19,7 +19,7 @@ class CustomButton extends StatefulWidget {
     this.backgroundColor = AppColors.primary,
     this.textColor = Colors.white,
     this.height = 48,
-    this.borderRadius = 10,
+    this.borderRadius = 14,
   });
 
   @override

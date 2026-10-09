@@ -14,6 +14,11 @@ class CustomTextField extends StatelessWidget {
   final Widget? prefixIcon;
   final Widget? suffixIcon;
   final bool autofocus;
+  final bool readOnly;
+  final VoidCallback? onTap;
+  final int? maxLines;
+  final int? maxLength;
+  final bool obscureText;
 
   const CustomTextField({
     super.key,
@@ -28,6 +33,11 @@ class CustomTextField extends StatelessWidget {
     this.prefixIcon,
     this.suffixIcon,
     this.autofocus = false,
+    this.readOnly = false,
+    this.onTap,
+    this.maxLines = 1,
+    this.maxLength,
+    this.obscureText = false,
   });
 
   @override
@@ -46,7 +56,10 @@ class CustomTextField extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         Container(
-          height: 48,
+          constraints: BoxConstraints(
+            minHeight: maxLines != null && maxLines! > 1 ? 96 : 48,
+          ),
+          height: maxLines == 1 ? 48 : null,
           decoration: BoxDecoration(
             color: AppColors.inputFill,
             borderRadius: BorderRadius.circular(10),
@@ -57,37 +70,53 @@ class CustomTextField extends StatelessWidget {
               width: hasError ? 1.2 : 1.0,
             ),
           ),
-          child: TextField(
-            controller: controller,
-            onChanged: onChanged,
-            onSubmitted: onSubmitted,
-            keyboardType: keyboardType,
-            textInputAction: textInputAction,
-            autofocus: autofocus,
-            style: AppTypography.inputText,
-            cursorColor: AppColors.primary,
-            decoration: InputDecoration(
-              hintText: hintText,
-              hintStyle: AppTypography.inputText.copyWith(
-                color: AppColors.textTertiary,
-                fontWeight: FontWeight.w400,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              prefixIcon: prefixIcon,
-              suffixIcon: suffixIcon,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(
-                  color: hasError ? AppColors.borderError : AppColors.borderFocus,
-                  width: 1.4,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              if (prefixIcon != null) ...[
+                prefixIcon!,
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  onChanged: onChanged,
+                  onSubmitted: onSubmitted,
+                  keyboardType: keyboardType,
+                  textInputAction: textInputAction,
+                  autofocus: autofocus,
+                  readOnly: readOnly,
+                  onTap: onTap,
+                  maxLines: maxLines,
+                  maxLength: maxLength,
+                  obscureText: obscureText,
+                  style: AppTypography.inputText.copyWith(
+                    fontSize: 14,
+                  ),
+                  cursorColor: AppColors.primary,
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    hintStyle: AppTypography.inputText.copyWith(
+                      color: AppColors.textTertiary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    counterText: '',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(
+                      vertical: maxLines == 1 ? 12 : 10,
+                    ),
+                  ),
                 ),
               ),
-            ),
+              if (suffixIcon != null) ...[
+                const SizedBox(width: 8),
+                suffixIcon!,
+              ],
+            ],
           ),
         ),
         if (hasError) ...[

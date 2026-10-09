@@ -1,13 +1,18 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../constants/app_assets.dart';
 import '../constants/app_colors.dart';
 import '../controllers/activities_controller.dart';
+import '../controllers/auth_controller.dart';
 import '../models/activity_model.dart';
+import '../repositories/activity_repository.dart';
 import '../widgets/date_picker_bottom_sheet.dart';
 import '../widgets/select_activity_sheet.dart';
-import '../widgets/select_location_sheet.dart';
 import '../widgets/time_picker_modal.dart';
 import 'activity_created_screen.dart';
+import 'browse_locations_screen.dart';
+import 'select_location_screen.dart';
 
 class CreateActivityScreen extends StatefulWidget {
   const CreateActivityScreen({super.key});
@@ -17,14 +22,16 @@ class CreateActivityScreen extends StatefulWidget {
 }
 
 class _CreateActivityScreenState extends State<CreateActivityScreen> {
+  bool _isCreating = false;
+
   // 1. Grouped Card State
   String _sportTitle = 'Box Cricket';
   String _sportIcon = AppAssets.actBoxCricket;
   SportCategory _sportCategory = SportCategory.boxCricket;
 
   String _venueName = 'Bhavnagar';
-  DateTime _selectedDate = DateTime(2025, 8, 24);
-  String _dateFormatted = 'Saturday, 24 Aug';
+  late DateTime _selectedDate;
+  late String _dateFormatted;
 
   int _hour = 6;
   int _minute = 30;
@@ -50,19 +57,35 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
 
   // 5. Who Can Join
   String _whoCanJoin = 'Public';
-  final List<String> _joinOptions = ['Public', 'Friends', 'Invite only'];
+  final List<String> _joinOptions = ['Public', 'Invite only'];
 
-  // 6. Note
+  // 6. Note & Equipment
   final TextEditingController _noteController = TextEditingController(
     text: 'Casual box cricket game. No experience needed — just come and play!',
   );
+  final TextEditingController _equipmentController = TextEditingController(
+    text: 'None',
+  );
 
-  // 7. Group Chat
-  bool _createGroupChat = true;
+  // 7. Duration
+  int _durationMinutes = 60;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = DateTime.now();
+    _dateFormatted = 'Today, ${_selectedDate.day} ${_getMonthName(_selectedDate.month)}';
+  }
+
+  String _getMonthName(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[(month - 1) % 12];
+  }
 
   @override
   void dispose() {
     _noteController.dispose();
+    _equipmentController.dispose();
     super.dispose();
   }
 
@@ -82,11 +105,10 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
   }
 
   void _openSelectLocation() async {
-    final result = await showModalBottomSheet<LocationVenueItem>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SelectLocationSheet(currentSelectedVenue: _venueName),
+    final result = await Navigator.of(context).push<LocationVenueItem>(
+      MaterialPageRoute(
+        builder: (_) => SelectLocationScreen(currentSelectedVenue: _venueName),
+      ),
     );
     if (result != null) {
       setState(() {
@@ -129,9 +151,34 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
     }
   }
 
-  void _createActivity() {
+  Future<void> _createActivity() async {
+    if (_isCreating) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    final authState = AuthController.instance.state;
+
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in to create an activity')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isCreating = true;
+    });
+
+    int hour24 = _isPm ? (_hour % 12 + 12) : (_hour % 12);
+    final startTimestamp = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      hour24,
+      _minute,
+    );
+
     final newActivity = ActivityModel(
-      id: 'act_${DateTime.now().millisecondsSinceEpoch}',
+      id: '',
       title: _sportTitle,
       subtitle: '$_dateFormatted · $_timeFormatted · $_venueName',
       iconAsset: _sportIcon,
@@ -141,41 +188,79 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
       totalPlayers: _playersNeeded,
       pricePerPerson: _selectedCost,
       note: _noteController.text.trim(),
-      date: _selectedDate,
+      date: startTimestamp,
       isHost: true,
+      hostId: user.uid,
+      hostName: authState.displayName.isNotEmpty ? authState.displayName : 'Host',
+      hostUsername: authState.username,
+      hostPhotoUrl: authState.avatarUrl ?? user.photoURL,
       venueName: _venueName,
       venueLocation: '$_venueName · Bhavnagar',
       venueConfirmed: true,
+      equipment: _equipmentController.text.trim().isEmpty ? 'None' : _equipmentController.text.trim(),
+      durationMinutes: _durationMinutes,
+      status: 'scheduled',
     );
 
-    // Add to ActivitiesController singleton
-    ActivitiesController().addActivity(newActivity);
+    try {
+      final activityId = await ActivityRepository().createActivity(
+        activity: newActivity,
+        hostUid: user.uid,
+        hostName: authState.displayName.isNotEmpty ? authState.displayName : 'Host',
+        hostUsername: authState.username,
+        hostPhotoUrl: authState.avatarUrl ?? user.photoURL,
+      );
 
-    // Push to ActivityCreatedScreen
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => ActivityCreatedScreen(activity: newActivity),
-      ),
-    );
+      if (!mounted) return;
+
+      if (activityId != null) {
+        final createdActivity = newActivity.copyWith(id: activityId);
+        ActivitiesController().addActivity(createdActivity);
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => ActivityCreatedScreen(activity: createdActivity),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create activity: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCreating = false;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Top Navigation Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Top Navigation Bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
                     child: Container(
-                      width: 34,
-                      height: 34,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: Colors.white,
                         shape: BoxShape.circle,
@@ -190,7 +275,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       ),
                       child: const Icon(
                         Icons.arrow_back_ios_new_rounded,
-                        size: 14,
+                        size: 16,
                         color: AppColors.textDark,
                       ),
                     ),
@@ -201,24 +286,24 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                         Text(
                           'Create Activity',
                           style: TextStyle(
-                            fontSize: 16,
+                            fontSize: 18,
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.2,
                             color: AppColors.textDark,
                           ),
                         ),
-                        SizedBox(height: 1),
+                        SizedBox(height: 2),
                         Text(
                           'Bring people together',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 13.5,
                             color: Color(0xFF64748B),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 34), // Balanced alignment
+                  const SizedBox(width: 40), // Balanced alignment
                 ],
               ),
             ),
@@ -253,10 +338,10 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
 
                     // ── 6. Add a Note Section ──
                     _buildNoteSection(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
 
-                    // ── 7. Group Chat Card ──
-                    _buildGroupChatCard(),
+                    // ── 7. Equipment Needed Section ──
+                    _buildEquipmentSection(),
                     const SizedBox(height: 18),
 
                     // ── 8. Create Button CTA ──
@@ -269,8 +354,9 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ─────────────────────────────────────────
   // 1. Grouped Information Card
@@ -289,7 +375,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -298,13 +384,13 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             label: 'Activity',
             value: _sportTitle,
             iconWidget: Container(
-              width: 28,
-              height: 28,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: const Color(0xFFEEF4FF),
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(8),
               ),
-              padding: const EdgeInsets.all(5),
+              padding: const EdgeInsets.all(6),
               child: Image.asset(_sportIcon, fit: BoxFit.contain),
             ),
             onTap: _openSelectActivity,
@@ -317,7 +403,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             value: _venueName,
             iconWidget: const Icon(
               Icons.location_on_outlined,
-              size: 18,
+              size: 20,
               color: AppColors.primary,
             ),
             onTap: _openSelectLocation,
@@ -330,7 +416,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             value: _dateFormatted,
             iconWidget: const Icon(
               Icons.calendar_today_outlined,
-              size: 17,
+              size: 19,
               color: AppColors.primary,
             ),
             onTap: _openDatePicker,
@@ -343,7 +429,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             value: _timeFormatted,
             iconWidget: const Icon(
               Icons.access_time_rounded,
-              size: 17,
+              size: 19,
               color: AppColors.primary,
             ),
             onTap: _openTimePicker,
@@ -352,16 +438,16 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
 
           // Estimated duration helper
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 3),
+            padding: EdgeInsets.symmetric(vertical: 4),
             child: Text(
               'Estimated duration · 1 hour',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 13,
                 color: Color(0xFF94A3B8),
               ),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
         ],
       ),
     );
@@ -377,7 +463,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
           children: [
             Expanded(
@@ -390,7 +476,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                         TextSpan(
                           text: label,
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 13.5,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF64748B),
                           ),
@@ -398,7 +484,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                         const TextSpan(
                           text: ' *',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 13.5,
                             fontWeight: FontWeight.w700,
                             color: Color(0xFFEA580C),
                           ),
@@ -406,11 +492,11 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     value,
                     style: const TextStyle(
-                      fontSize: 13.5,
+                      fontSize: 14.5,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textDark,
                     ),
@@ -421,11 +507,11 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
               ),
             ),
             iconWidget,
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             const Icon(
               Icons.chevron_right_rounded,
               color: Color(0xFF94A3B8),
-              size: 16,
+              size: 18,
             ),
           ],
         ),
@@ -450,7 +536,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -463,7 +549,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                     TextSpan(
                       text: 'Players needed',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textDark,
                       ),
@@ -471,7 +557,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                     TextSpan(
                       text: ' *',
                       style: TextStyle(
-                        fontSize: 13,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFEA580C),
                       ),
@@ -492,8 +578,8 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                           }
                         : null,
                     child: Container(
-                      width: 28,
-                      height: 28,
+                      width: 34,
+                      height: 34,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
@@ -506,23 +592,23 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       alignment: Alignment.center,
                       child: Icon(
                         Icons.remove,
-                        size: 14,
+                        size: 16,
                         color: _playersNeeded > 2
                             ? AppColors.primary
                             : const Color(0xFFCBD5E1),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Text(
                     '$_playersNeeded',
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textDark,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   GestureDetector(
                     onTap: () {
                       setState(() {
@@ -530,8 +616,8 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       });
                     },
                     child: Container(
-                      width: 28,
-                      height: 28,
+                      width: 34,
+                      height: 34,
                       decoration: const BoxDecoration(
                         shape: BoxShape.circle,
                         color: AppColors.primary,
@@ -539,7 +625,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       alignment: Alignment.center,
                       child: const Icon(
                         Icons.add,
-                        size: 15,
+                        size: 17,
                         color: Colors.white,
                       ),
                     ),
@@ -548,19 +634,19 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           const Text(
             'How many people can join?',
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: 13.5,
               color: Color(0xFF64748B),
             ),
           ),
-          const SizedBox(height: 1),
+          const SizedBox(height: 2),
           const Text(
             'Minimum players · 4',
             style: TextStyle(
-              fontSize: 10.5,
+              fontSize: 12.5,
               color: Color(0xFF94A3B8),
             ),
           ),
@@ -579,7 +665,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
         const Text(
           'SKILL LEVEL',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13.5,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.5,
             color: Color(0xFF64748B),
@@ -587,8 +673,8 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
         ),
         const SizedBox(height: 8),
         Wrap(
-          spacing: 6,
-          runSpacing: 6,
+          spacing: 8,
+          runSpacing: 8,
           children: _skillLevels.map((skill) {
             final bool isSelected = _selectedSkillLevel == skill;
             return GestureDetector(
@@ -598,7 +684,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                 });
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected ? AppColors.primary : Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -612,7 +698,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                 child: Text(
                   skill.label,
                   style: TextStyle(
-                    fontSize: 11.5,
+                    fontSize: 14,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                     color: isSelected ? Colors.white : AppColors.textDark,
                   ),
@@ -642,20 +728,20 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'COST PER PERSON',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 13.5,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.5,
               color: Color(0xFF64748B),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
           // Chips Row: Free, ₹60, ₹100, ₹150, Custom
           SingleChildScrollView(
@@ -667,7 +753,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                   final bool isSelected = _selectedCost == cost;
                   final label = cost == 0 ? 'Free' : '₹$cost';
                   return Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
                       onTap: () {
                         setState(() {
@@ -676,8 +762,8 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 5.5,
+                          horizontal: 14,
+                          vertical: 7.5,
                         ),
                         decoration: BoxDecoration(
                           color: isSelected ? AppColors.primary : Colors.white,
@@ -692,7 +778,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                         child: Text(
                           label,
                           style: TextStyle(
-                            fontSize: 11.5,
+                            fontSize: 14,
                             fontWeight:
                                 isSelected ? FontWeight.w600 : FontWeight.w500,
                             color: isSelected ? Colors.white : AppColors.textDark,
@@ -712,15 +798,17 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       builder: (ctx) => AlertDialog(
                         title: const Text(
                           'Enter Custom Cost',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                         content: TextField(
                           controller: controller,
                           keyboardType: TextInputType.number,
-                          style: const TextStyle(fontSize: 14),
+                          maxLength: 7,
+                          style: const TextStyle(fontSize: 15),
                           decoration: const InputDecoration(
                             prefixText: '₹ ',
                             hintText: 'e.g. 200',
+                            counterText: '',
                           ),
                         ),
                         actions: [
@@ -746,8 +834,8 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 11,
-                      vertical: 5.5,
+                      horizontal: 14,
+                      vertical: 7.5,
                     ),
                     decoration: BoxDecoration(
                       color: !_costOptions.contains(_selectedCost)
@@ -766,7 +854,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                           ? '₹$_selectedCost'
                           : 'Custom',
                       style: TextStyle(
-                        fontSize: 11.5,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: !_costOptions.contains(_selectedCost)
                             ? Colors.white
@@ -778,9 +866,9 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           const Divider(color: Color(0xFFF1F5F9), height: 1),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
           // Split cost Switch Row
           Row(
@@ -792,16 +880,16 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                     Text(
                       'Split cost',
                       style: TextStyle(
-                        fontSize: 12.5,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textDark,
                       ),
                     ),
-                    SizedBox(height: 1),
+                    SizedBox(height: 2),
                     Text(
                       'Split venue cost between players',
                       style: TextStyle(
-                        fontSize: 10.5,
+                        fontSize: 13,
                         color: Color(0xFF64748B),
                       ),
                     ),
@@ -809,7 +897,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                 ),
               ),
               Transform.scale(
-                scale: 0.75,
+                scale: 0.85,
                 child: Switch(
                   value: _splitCost,
                   activeThumbColor: AppColors.primary,
@@ -844,20 +932,20 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'WHO CAN JOIN?',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 13.5,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.5,
               color: Color(0xFF64748B),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
           // Segmented selector container
           Container(
@@ -877,7 +965,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       });
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 6.5),
+                      padding: const EdgeInsets.symmetric(vertical: 8.5),
                       decoration: BoxDecoration(
                         color: isSelected ? Colors.white : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
@@ -895,7 +983,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
                       child: Text(
                         opt,
                         style: TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 14,
                           fontWeight:
                               isSelected ? FontWeight.w600 : FontWeight.w500,
                           color: isSelected
@@ -909,22 +997,26 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
               }).toList(),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
           // Info message
-          const Row(
+          Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.info_outline_rounded,
-                size: 13,
+                size: 16,
                 color: Color(0xFF94A3B8),
               ),
-              SizedBox(width: 5),
-              Text(
-                'Anyone nearby can discover and join',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: Color(0xFF94A3B8),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _whoCanJoin == 'Public'
+                      ? 'Anyone nearby can discover and join'
+                      : 'Only invited users can join or request access',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF94A3B8),
+                  ),
                 ),
               ),
             ],
@@ -944,7 +1036,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
         const Text(
           'ADD A NOTE (OPTIONAL)',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13.5,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.5,
             color: Color(0xFF64748B),
@@ -957,24 +1049,26 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: TextField(
             controller: _noteController,
             maxLines: 3,
             minLines: 2,
+            maxLength: 500,
             style: const TextStyle(
-              fontSize: 12.5,
+              fontSize: 14.5,
               color: AppColors.textDark,
               height: 1.35,
             ),
             decoration: const InputDecoration(
               hintText: 'Add note for participants...',
               hintStyle: TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 color: Color(0xFF94A3B8),
               ),
               border: InputBorder.none,
               isDense: true,
+              counterText: '',
             ),
           ),
         ),
@@ -982,56 +1076,231 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
     );
   }
 
-  // ─────────────────────────────────────────
-  // 7. Group Chat Card
-  // ─────────────────────────────────────────
-  Widget _buildGroupChatCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  void _openCustomDurationPicker() async {
+    HapticFeedback.lightImpact();
+    int initialHours = _durationMinutes ~/ 60;
+    int initialMins = _durationMinutes % 60;
+    final hoursCtrl = TextEditingController(text: '$initialHours');
+    final minsCtrl = TextEditingController(text: '$initialMins');
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Custom Duration', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
               children: [
-                Text(
-                  'Create a group chat',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textDark,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Hours', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: hoursCtrl,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                SizedBox(height: 1),
-                Text(
-                  'Chat with players before the activity',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    color: Color(0xFF64748B),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Minutes', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: minsCtrl,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
           ),
-          Transform.scale(
-            scale: 0.75,
-            child: Switch(
-              value: _createGroupChat,
-              activeThumbColor: AppColors.primary,
-              onChanged: (val) {
-                setState(() {
-                  _createGroupChat = val;
-                });
-              },
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
+            onPressed: () {
+              final hrs = int.tryParse(hoursCtrl.text.trim()) ?? 0;
+              final mins = int.tryParse(minsCtrl.text.trim()) ?? 0;
+              final total = (hrs * 60) + mins;
+              if (total > 0 && total <= 1440) {
+                Navigator.of(ctx).pop(total);
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Please enter valid duration (1 min - 24 hrs)')),
+                );
+              }
+            },
+            child: const Text('Confirm', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
+    );
+
+    if (result != null && result > 0) {
+      setState(() {
+        _durationMinutes = result;
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // 7. Equipment Section
+  // ─────────────────────────────────────────
+  Widget _buildEquipmentSection() {
+    final presetValues = [30, 60, 90, 120, 180];
+    final durationOptions = [
+      {'val': 30, 'label': '30m'},
+      {'val': 60, 'label': '1h'},
+      {'val': 90, 'label': '1.5h'},
+      {'val': 120, 'label': '2h'},
+      {'val': 180, 'label': '3h'},
+    ];
+
+    final bool isCustomSelected = !presetValues.contains(_durationMinutes);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'DURATION',
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: [
+              ...durationOptions.map((opt) {
+                final val = opt['val'] as int;
+                final label = opt['label'] as String;
+                final isSelected = _durationMinutes == val;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _durationMinutes = val;
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7.5),
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.primary : Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: isSelected ? Colors.white : AppColors.textDark,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+
+              // Custom option
+              GestureDetector(
+                onTap: _openCustomDurationPicker,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7.5),
+                  decoration: BoxDecoration(
+                    color: isCustomSelected ? AppColors.primary : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isCustomSelected ? AppColors.primary : const Color(0xFFE2E8F0),
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Text(
+                    isCustomSelected ? '${_durationMinutes ~/ 60}h ${_durationMinutes % 60}m' : 'Custom',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: isCustomSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isCustomSelected ? Colors.white : AppColors.textDark,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          'EQUIPMENT NEEDED',
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: TextField(
+            controller: _equipmentController,
+            maxLength: 100,
+            style: const TextStyle(
+              fontSize: 14.5,
+              color: AppColors.textDark,
+            ),
+            decoration: const InputDecoration(
+              hintText: 'e.g. None, Bring your own racket, Football...',
+              hintStyle: TextStyle(
+                fontSize: 14,
+                color: Color(0xFF94A3B8),
+              ),
+              border: InputBorder.none,
+              isDense: true,
+              counterText: '',
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1045,10 +1314,10 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
           onTap: _createActivity,
           child: Container(
             width: double.infinity,
-            height: 44,
+            height: 52,
             decoration: BoxDecoration(
               color: AppColors.primary,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.primary.withValues(alpha: 0.25),
@@ -1061,19 +1330,19 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
             child: const Text(
               'Create Activity',
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
                 color: Colors.white,
                 letterSpacing: 0.2,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         const Text(
           'You can edit the details later.',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             color: Color(0xFF94A3B8),
           ),
           textAlign: TextAlign.center,

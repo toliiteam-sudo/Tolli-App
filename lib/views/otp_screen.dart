@@ -5,6 +5,8 @@ import '../controllers/auth_controller.dart';
 import '../widgets/auth_step_progress.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/otp_pin_input.dart';
+import 'email_screen.dart';
+import 'home_screen.dart';
 import 'location_screen.dart';
 
 class OtpScreen extends StatefulWidget {
@@ -30,25 +32,63 @@ class _OtpScreenState extends State<OtpScreen> {
 
   Future<void> _handleVerify() async {
     FocusScope.of(context).unfocus();
+    debugPrint('====================================================');
+    debugPrint('[UI OTP SCREEN] 🔘 "Verify" button tapped for OTP: "${_controller.state.otp}"');
 
     final success = await _controller.verifyOtp();
+    debugPrint('[UI OTP SCREEN] Verification result: $success, isProfileComplete: ${_controller.state.isProfileComplete}');
     if (success && mounted) {
-      Navigator.of(context).push(
+      if (_controller.state.isProfileComplete) {
+        debugPrint('[UI OTP SCREEN] 🚀 Profile complete! Navigating directly to HomeScreen.');
+        Navigator.of(context).pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                const HomeScreen(),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+          (route) => false,
+        );
+      } else {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                LocationScreen(
+              authController: _controller,
+            ),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              final curvedAnimation = CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+              );
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(1.0, 0.0),
+                  end: Offset.zero,
+                ).animate(curvedAnimation),
+                child: child,
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleBackNavigation() {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>
-              LocationScreen(
-            authController: _controller,
-          ),
+              const EmailScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final curvedAnimation = CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            );
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(curvedAnimation),
+            return FadeTransition(
+              opacity: animation,
               child: child,
             );
           },
@@ -60,10 +100,27 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleBackNavigation();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFFF8FAFC),
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(
+              Icons.arrow_back,
+              color: Color(0xFF0F172A),
+              size: 22,
+            ),
+            onPressed: _handleBackNavigation,
+          ),
+        ),
       body: SafeArea(
-        bottom: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
             return AnimatedBuilder(
@@ -74,7 +131,7 @@ class _OtpScreenState extends State<OtpScreen> {
                     ? state.email
                     : (state.phoneNumber.isNotEmpty
                         ? state.phoneNumber
-                        : '+91 98765 43210');
+                        : state.rawPhoneNumber);
 
                 return SingleChildScrollView(
                   physics: const ClampingScrollPhysics(),
@@ -86,7 +143,7 @@ class _OtpScreenState extends State<OtpScreen> {
                         children: [
                           // Top 2 of 5 Header Section
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                            padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
                             child: AuthStepProgress(
                               currentStep: 2,
                               totalSteps: 5,
@@ -103,53 +160,47 @@ class _OtpScreenState extends State<OtpScreen> {
                             width: double.infinity,
                             decoration: const BoxDecoration(
                               color: Colors.white,
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(28),
-                                topRight: Radius.circular(28),
-                              ),
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Color(0x14000000),
-                                  blurRadius: 24,
+                                  color: Color(0x0C000000),
+                                  blurRadius: 20,
                                   offset: Offset(0, -6),
                                 ),
                               ],
                             ),
-                            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-                            child: SafeArea(
-                              top: false,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Header: "You're Almost There!" + Close button
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        "You're Almost There!",
-                                        style:
-                                            AppTypography.titleLarge.copyWith(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.cancel_outlined,
-                                          color: AppColors.textSecondary,
-                                          size: 24,
-                                        ),
-                                        onPressed: () {
-                                          Navigator.of(context).maybePop();
-                                        },
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(),
-                                      ),
-                                    ],
+                            padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Icon Badge Container (LocationScreen style)
+                                Container(
+                                  width: 50,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFF6FF),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
-                                  const SizedBox(height: 20),
+                                  alignment: Alignment.center,
+                                  child: const Icon(
+                                    Icons.mark_email_read_outlined,
+                                    color: AppColors.primary,
+                                    size: 26,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+
+                                // Heading
+                                Text(
+                                  "You're Almost There!",
+                                  style: AppTypography.headline.copyWith(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
 
                                   // Subhead Row: "Enter OTP" on Left & Phone/Email on Right
                                   Row(
@@ -197,45 +248,93 @@ class _OtpScreenState extends State<OtpScreen> {
                                   ),
                                   const SizedBox(height: 16),
 
-                                  // Resend OTP Countdown / Action Text
+                                  // Expiration Notice
+                                  Center(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.timer_outlined,
+                                          size: 13,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Code is valid for 5 minutes',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+
+                                  // Resend OTP Action / Disabled Countdown
                                   Center(
                                     child: _controller.canResend
-                                        ? GestureDetector(
-                                            onTap: () =>
-                                                _controller.resendOtp(),
+                                        ? TextButton(
+                                            onPressed: _controller.state.isLoading
+                                                ? null
+                                                : () async {
+                                                    final messenger = ScaffoldMessenger.of(context);
+                                                    await _controller.resendOtp();
+                                                    if (mounted && _controller.state.otpError == null) {
+                                                      messenger.showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text('A fresh verification code was sent to your email.'),
+                                                          backgroundColor: AppColors.primary,
+                                                          duration: Duration(seconds: 3),
+                                                        ),
+                                                      );
+                                                    }
+                                                  },
+                                            style: TextButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                              minimumSize: Size.zero,
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
                                             child: Text(
                                               'Resend OTP',
-                                              style: AppTypography.caption
-                                                  .copyWith(
+                                              style: AppTypography.caption.copyWith(
                                                 color: AppColors.primary,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
                                               ),
                                             ),
                                           )
-                                        : Text(
-                                            'Resend OTP in ${_controller.formattedCountdown}',
-                                            style:
-                                                AppTypography.caption.copyWith(
-                                              color: AppColors.textSecondary,
-                                              fontSize: 12,
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              'Resend OTP in ${_controller.formattedCountdown}',
+                                              style: AppTypography.caption.copyWith(
+                                                color: AppColors.textSecondary,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
                                             ),
                                           ),
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
+                  );
               },
             );
           },
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

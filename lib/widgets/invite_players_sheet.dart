@@ -4,6 +4,7 @@ import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
 import '../controllers/activities_controller.dart';
 import '../models/activity_model.dart';
+import '../services/toli_share_service.dart';
 
 class InvitePlayersBottomSheet extends StatefulWidget {
   final ActivityModel? activity;
@@ -54,31 +55,29 @@ class _InvitePlayersBottomSheetState extends State<InvitePlayersBottomSheet> {
 
   void _onQuickShare(String action) {
     HapticFeedback.lightImpact();
-    String message = '';
     switch (action) {
       case 'public':
-        message = 'Activity visibility set to Public!';
+        if (widget.activity != null) {
+          ToliShareService.shareActivity(context, widget.activity!);
+        } else {
+          ToliShareService.shareTextRaw(context, text: 'Check out activities on TOLII! https://tolii.app');
+        }
         break;
       case 'squads':
-        message = 'Shared with your Squads!';
+        ToliShareService.shareCommunity(
+          context,
+          name: 'Tolii Squads',
+          description: 'Join my sports squad on TOLII!',
+        );
         break;
       case 'copy':
-        Clipboard.setData(ClipboardData(
-          text: 'Join my ${widget.activity?.title ?? 'game'} on Tolii! https://tolii.app/act/${widget.activity?.id ?? '123'}',
-        ));
-        message = 'Invite link copied to clipboard!';
+        final url = 'https://tolii.app/activity/${widget.activity?.id ?? '123'}';
+        ToliShareService.copyLink(context, url: url, message: 'Invite link copied to clipboard!');
         break;
       case 'external':
-        message = 'Share dialog opened!';
+        ToliShareService.invitePlayers(context, widget.activity);
         break;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   @override
@@ -110,10 +109,27 @@ class _InvitePlayersBottomSheetState extends State<InvitePlayersBottomSheet> {
             ),
           ),
 
-          // Header: Title + Close Button
+          // Header: Back Button + Title
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              GestureDetector(
+                onTap: () => Navigator.of(context).pop(),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 15,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
               Text(
                 'Invite Players',
                 style: AppTypography.headline.copyWith(
@@ -122,51 +138,54 @@ class _InvitePlayersBottomSheetState extends State<InvitePlayersBottomSheet> {
                   color: const Color(0xFF0F172A),
                 ),
               ),
-              GestureDetector(
-                onTap: () => Navigator.of(context).pop(),
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: const Icon(
-                    Icons.close_rounded,
-                    size: 16,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 16),
 
-          // Search Field
+          // Search Field (Matching SS 3: Height 50, Capsule shape radius 25, primary search icon)
           Container(
-            height: 46,
+            height: 50,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+              borderRadius: BorderRadius.circular(25),
+              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x05000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 2),
+                ),
+              ],
             ),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search for players...',
-                hintStyle: AppTypography.caption.copyWith(
-                  fontSize: 13.5,
-                  color: const Color(0xFF94A3B8),
-                ),
-                prefixIcon: const Icon(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Icon(
                   Icons.search_rounded,
-                  size: 20,
-                  color: Color(0xFF64748B),
+                  color: AppColors.primary,
+                  size: 22,
                 ),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    maxLength: 100,
+                    style: AppTypography.inputText.copyWith(fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Search activities, people or places',
+                      hintStyle: AppTypography.inputText.copyWith(
+                        color: const Color(0xFF94A3B8),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      counterText: '',
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 20),

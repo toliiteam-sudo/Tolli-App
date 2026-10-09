@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../constants/app_colors.dart';
 import '../constants/app_typography.dart';
 import '../models/activity_model.dart';
+import '../services/toli_share_service.dart';
 import 'activity_detail_screen.dart';
 
 class ActivityCreatedScreen extends StatefulWidget {
@@ -335,14 +336,7 @@ class _ActivityCreatedScreenState extends State<ActivityCreatedScreen>
 
                       // 2. Invite people (outlined)
                       GestureDetector(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Invite link copied to clipboard!'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: () => ToliShareService.invitePlayers(context, activity),
                         child: Container(
                           width: double.infinity,
                           height: 50,
@@ -380,14 +374,7 @@ class _ActivityCreatedScreenState extends State<ActivityCreatedScreen>
 
                       // 3. Share activity (outlined)
                       GestureDetector(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Activity shared!'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: () => ToliShareService.shareActivity(context, activity),
                         child: Container(
                           width: double.infinity,
                           height: 50,
