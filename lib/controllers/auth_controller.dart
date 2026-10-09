@@ -186,23 +186,30 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  void startResendTimer({int seconds = 23}) {
+  void startResendTimer({int seconds = 60}) {
     _timer?.cancel();
     _resendCountdown = seconds;
     _canResend = false;
     notifyListeners();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_resendCountdown > 1) {
+      if (_resendCountdown > 0) {
         _resendCountdown--;
         notifyListeners();
-      } else {
+      }
+      if (_resendCountdown <= 0) {
         _resendCountdown = 0;
         _canResend = true;
         _timer?.cancel();
+        _timer = null;
         notifyListeners();
       }
     });
+  }
+
+  void cancelResendTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   void updateOtp(String otp) {
@@ -242,14 +249,17 @@ class AuthController extends ChangeNotifier {
         // If Firebase Custom Token is provided, authenticate with Firebase Auth
         if (response.firebaseToken != null && response.firebaseToken!.isNotEmpty) {
           try {
+            debugPrint('[AUTH CONTROLLER] 🚀 Attempting FirebaseAuth.signInWithCustomToken...');
             final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
               response.firebaseToken!,
             );
             final user = userCredential.user;
+            debugPrint('[AUTH CONTROLLER] ✅ Firebase Sign-In Succeeded! UID: ${user?.uid}, Email: ${user?.email}');
 
             if (user != null) {
               final remoteProfile = await _userRepository.getUserProfile(user.uid);
               if (remoteProfile != null) {
+                debugPrint('[AUTH CONTROLLER] 👤 Existing profile found in Firestore! isProfileComplete: ${remoteProfile.isProfileComplete}');
                 _state.firstName = remoteProfile.firstName;
                 _state.lastName = remoteProfile.lastName;
                 _state.username = remoteProfile.username;
@@ -264,16 +274,25 @@ class AuthController extends ChangeNotifier {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setBool('tolii_is_profile_complete', remoteProfile.isProfileComplete);
               } else {
+                debugPrint('[AUTH CONTROLLER] 🆕 New user detected! Routing to profile creation.');
                 _state.isProfileComplete = false;
               }
             }
-          } catch (authError) {
-            debugPrint('[AUTH] Firebase signInWithCustomToken error: $authError');
+          } catch (authError, stack) {
+            debugPrint('[AUTH CONTROLLER ERROR] ❌ Firebase signInWithCustomToken failed: $authError');
+            debugPrint('$stack');
           }
+        } else {
+          debugPrint('====================================================');
+          debugPrint('[AUTH CONTROLLER WARNING] ⚠️ No firebaseToken in server response!');
+          debugPrint('[AUTH CONTROLLER WARNING] ⚠️ FirebaseAuth.currentUser remains NULL!');
+          debugPrint('[AUTH CONTROLLER WARNING] 💡 Add FIREBASE_SERVICE_ACCOUNT to Render to enable Firebase Custom Tokens.');
+          debugPrint('====================================================');
         }
 
         _state.isLoading = false;
         _state.otpError = null;
+        cancelResendTimer();
         if (!_state.isProfileComplete) {
           _state.currentStep = 3;
         }
@@ -283,6 +302,7 @@ class AuthController extends ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 350));
         _state.isLoading = false;
         _state.otpError = null;
+        cancelResendTimer();
         _state.currentStep = 3;
         notifyListeners();
         return true;
@@ -298,8 +318,9 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> resendOtp() async {
-    if (!_canResend) return;
+    if (!_canResend || _state.isLoading) return;
 
+    _canResend = false;
     _state.otp = '';
     _state.otpError = null;
     _state.isLoading = true;
@@ -312,6 +333,7 @@ class AuthController extends ChangeNotifier {
 
         if (!response.success) {
           _state.otpError = response.message;
+          _canResend = true;
           notifyListeners();
           return;
         }
@@ -321,12 +343,13 @@ class AuthController extends ChangeNotifier {
       } else {
         await Future.delayed(const Duration(milliseconds: 500));
         _state.isLoading = false;
-        startResendTimer(seconds: 23);
+        startResendTimer(seconds: 60);
         notifyListeners();
       }
     } catch (e) {
       debugPrint('[AuthController] resendOtp exception: $e');
       _state.otpError = 'Failed to resend code. Please try again.';
+      _canResend = true;
     } finally {
       _state.isLoading = false;
       notifyListeners();
@@ -650,7 +673,9 @@ class AuthController extends ChangeNotifier {
             _state.phoneNumber = user.phoneNumber!;
             _state.rawPhoneNumber = user.phoneNumber!;
           }
-          _state.isProfileComplete = false;
+          final prefs = await SharedPreferences.getInstance();
+          final localComplete = prefs.getBool('tolii_is_profile_complete') ?? false;
+          _state.isProfileComplete = localComplete;
         }
       }
     } catch (e) {
@@ -672,8 +697,15 @@ class AuthController extends ChangeNotifier {
     List<String>? interestedActivities,
   }) async {
     final user = _auth.currentUser;
+    debugPrint('====================================================');
+    debugPrint('[SAVE PROFILE] 🚀 Initiating profile save...');
+    debugPrint('[SAVE PROFILE] FirebaseAuth.currentUser: ${user != null ? "UID: ${user.uid}, Email: ${user.email}" : "NULL ❌"}');
+
     if (user == null) {
-      _state.authError = 'No authenticated user found.';
+      debugPrint('[SAVE PROFILE ERROR] ❌ Cannot save profile: No authenticated Firebase user found!');
+      debugPrint('[SAVE PROFILE ERROR] 💡 Root cause: Firebase Custom Token was not minted on Render.');
+      debugPrint('[SAVE PROFILE ERROR] 💡 Fix: Add FIREBASE_SERVICE_ACCOUNT to Render environment variables.');
+      _state.authError = 'No authenticated user found. Please login again with verified OTP.';
       notifyListeners();
       return false;
     }
@@ -688,6 +720,7 @@ class AuthController extends ChangeNotifier {
     if (interestedActivities != null) _state.selectedInterests = List.from(interestedActivities);
 
     if (_state.firstName.isEmpty) {
+      debugPrint('[SAVE PROFILE ERROR] ❌ First name is empty');
       _state.usernameError = 'Please enter your first name';
       notifyListeners();
       return false;
@@ -697,20 +730,23 @@ class AuthController extends ChangeNotifier {
 
     // 1. Automatically generate and claim unique username in Firestore transaction
     try {
+      debugPrint('[SAVE PROFILE] 🔍 Claiming unique username for UID: ${user.uid} (Name: ${_state.firstName} ${_state.lastName})...');
       final assignedUsername = await _usernameRepository.generateAndClaimUniqueUsername(
         uid: user.uid,
         firstName: _state.firstName,
         lastName: _state.lastName,
         oldUsername: oldUsername.isNotEmpty ? oldUsername : null,
       );
+      debugPrint('[SAVE PROFILE] ✅ Unique username claimed: @$assignedUsername');
       _state.username = assignedUsername;
       _state.checkedUsername = assignedUsername;
       _state.isUsernameAvailable = true;
       _state.usernameValidationStatus = UsernameValidationStatus.available;
       _state.usernameError = null;
-    } catch (e) {
-      debugPrint('Error during automatic username generation/claim in Firestore transaction: $e');
-      _state.usernameError = 'Unable to save profile. Please check network/permissions and try again.';
+    } catch (e, stack) {
+      debugPrint('[SAVE PROFILE ERROR] ❌ Username claim transaction failed: $e');
+      debugPrint('$stack');
+      _state.usernameError = 'Unable to save profile: $e';
       _state.isLoading = false;
       notifyListeners();
       return false;
@@ -734,12 +770,15 @@ class AuthController extends ChangeNotifier {
       isProfileComplete: true,
     );
 
+    debugPrint('[SAVE PROFILE] 💾 Writing user document to Firestore users/${user.uid}...');
     final savedRemote = await _userRepository.saveUserProfile(userProfile);
     if (!savedRemote) {
+      debugPrint('[SAVE PROFILE ERROR] ❌ Firestore saveUserProfile returned false! Check Firestore security rules.');
       _state.authError = 'Failed to save profile to server.';
       notifyListeners();
       return false;
     }
+    debugPrint('[SAVE PROFILE] ✅ Profile successfully saved to Firestore users/${user.uid}!');
 
     // 3. Sync SharedPreferences local cache
     try {

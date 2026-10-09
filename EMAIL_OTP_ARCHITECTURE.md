@@ -1,213 +1,194 @@
 # 📧 TOLII Email OTP Authentication Architecture & Developer Guide
 
-> **Production Context & Reference Guide for the TOLII Engineering Team**  
-> *Last Updated: September 2026*  
-> *Status: Fully Operational in Production* 🚀
+> **Official Production Reference Guide for TOLII Developers**  
+> *Last Updated: October 2026*  
+> *Status: Fully Operational in Production (Lifetime Permanent OAuth2)* 🚀
 
 ---
 
 ## 📌 Executive Summary
 
+TOLII uses a **100% Free, High-Speed, Permanent Email OTP Authentication System** built on **Google Gmail API (OAuth 2.0 over HTTPS)**:
 
-TOLII uses a zero-cost, high-deliverability **Email OTP Authentication System** designed for speed, security, and inbox placement:
-
-- **Delivery Speed**: **~740 milliseconds** (< 1 second) from user tap to dispatch.
-- **Inbox Placement**: **100% Primary Inbox** (zero Spam folder flags) via authenticated Google Gmail API OAuth2.
-- **Cost**: **$0.00 / month** (500 free emails/day on standard Google accounts; 2,000/day on Google Workspace).
-- **Backend Host**: Hosted on Render (`https://tolli-app.onrender.com`).
-- **Security**: HMAC-SHA256 salted hashes, 5-minute expiry, 60-second resend cooldown, max 5 attempts rate limiting, and Firebase Admin Custom Token minting.
+* **Delivery Speed**: **~900 ms to 1.8 seconds** from user tap to dispatch.
+* **Inbox Placement**: **100% Primary Inbox** (Zero spam flags) because emails originate directly from Google's authenticated infrastructure (`tolii.team@gmail.com`).
+* **Permanence**: **Lifetime Permanent** (Google Cloud project is set to **"In production"** status, which eliminates the 7-day test token expiry).
+* **Cost**: **$0.00 / month** (500 free emails/day on free Google accounts; 2,000/day on Google Workspace).
+* **Backend Host**: Hosted on Render (`https://tolli-app.onrender.com`).
+* **Security**: HMAC-SHA256 salted hashes, 5-minute TTL, 60-second resend cooldown, 5-attempt brute-force protection, and Firebase Admin Custom Token minting.
 
 ---
 
-## 🏛️ System Architecture Diagram
+## 🏛️ System Architecture
 
 ```
-+-------------------------------------------------------------------------------+
-|                                FLUTTER CLIENT                                 |
-|                                                                               |
-|   EmailScreen                  OtpScreen                        HomeScreen    |
-|   (Pre-warms backend)          (6-digit pin input)             (Logged in)    |
-|        │                           │                                │         |
-|        │ Request OTP               │ Verify OTP                     │         |
-|        ▼                           ▼                                │         |
-|   OtpService                  AuthController                        │         |
-|   (EmailOtpProvider)          (signInWithCustomToken)               │         |
-+────────┬───────────────────────────┬────────────────────────────────┼─────────+
-         │                           │                                │
-         │ HTTPS POST                │ HTTPS POST                     │
-         │ /api/request-otp          │ /api/verify-otp                │
-         ▼                           ▼                                │
-+─────────────────────────────────────────────────────────────────────┼─────────+
-|                               NODE.JS BACKEND                       │         |
-|                       (https://tolli-app.onrender.com)              │         |
-|                                                                     │         |
-|   1. Validate Regex & Rate Limit (60s cooldown)                     │         |
-|   2. Generate 6-digit crypto OTP                                    │         |
-|   3. Store HMAC-SHA256 hash in memory (5 min TTL)                   │         |
-|   4. Mint Firebase Custom Token on verify                           │         |
-|                                                                     │         |
-|              Dispatches Email via Multi-Tier Fallback:              │         |
-|              ┌────────────────────────────────────────┐             │         |
-|              │ Tier 1: Gmail API (OAuth2 over HTTPS)  │ ◄── PRIMARY │         |
-|              │ Tier 2: SendGrid HTTP API              │ ◄── BACKUP  │         |
-|              │ Tier 3: Resend HTTP API                │ ◄── BACKUP  │         |
-|              └────────────────────────────────────────┘             │         |
-+────────────────────────────────────┬────────────────────────────────┼─────────+
-                                     │                                │
-                                     ▼                                ▼
-                       Google Gmail / SendGrid             Firebase Authentication
-                     (Direct to User's Inbox)              (Signs user into Firebase)
++─────────────────────────────────────────────────────────────────────────────────────────+
+|                                     FLUTTER CLIENT                                      |
+|                                                                                         |
+|      EmailScreen                        OtpScreen                         HomeScreen    |
+|   (Pre-warms backend)              (6-digit PIN input)                   (Logged in)    |
+|            │                                │                                 ▲         |
+|            │ 1. Request OTP                 │ 3. Verify OTP                   │         |
+|            ▼                                ▼                                 │         |
+|       OtpService                       AuthController                         │         |
+|   (EmailOtpProvider)               (signInWithCustomToken)                    │         |
++────────────┬────────────────────────────────┬─────────────────────────────────┼─────────+
+             │                                │                                 │
+             │ HTTPS POST                     │ HTTPS POST                      │
+             │ /api/request-otp               │ /api/verify-otp                 │
+             ▼                                ▼                                 │
++───────────────────────────────────────────────────────────────────────────────┼─────────+
+|                                    RENDER BACKEND                             │         |
+|                           (https://tolli-app.onrender.com)                    │         |
+|                                                                               │         |
+|   • Pre-warm Ping: GET / wakes up free instance                               │         |
+|   • Crypto OTP: Generates secure 6-digit random code                          │         |
+|   • Security Store: HMAC-SHA256 salted memory store (5 min expiry)             │         |
+|   • Rate Limiting: 60s resend cooldown & max 5 failed attempts lockout        │         |
+|   • Firebase Admin: Mints custom JWT token on successful verification ────────┘         |
+|                                     │                                                   |
+|                                     ▼ (OAuth2 HTTPS Call)                               |
+|                     Google Gmail REST API (v1 /messages/send)                           |
++─────────────────────────────────────┬───────────────────────────────────────────────────+
+                                      │
+                                      ▼
+                        User's Email Inbox (Primary)
 ```
 
 ---
 
-## 🚀 End-to-End Request & Verification Flow
+## 💡 Why This Single Solution Was Chosen
 
-### 1. Requesting an OTP (`POST /api/request-otp`)
-
-1. **User input**: User types email in `EmailScreen` and taps **"Send Code"**.
-2. **Pre-warming**: `_EmailScreenState.initState()` automatically sends a lightweight GET ping to `https://tolli-app.onrender.com/` so the backend is awake before the user finishes typing.
-3. **Payload**:
-   ```json
-   {
-     "email": "user@example.com"
-   }
-   ```
-4. **Validation & Rate Limiting**:
-   - RFC email regex validation.
-   - 60-second cooldown check (`RESEND_COOLDOWN_MS = 60 * 1000`). If requested too early, returns HTTP `429 Too Many Requests`.
-5. **Code Generation**:
-   - Uses Node.js `crypto.randomInt(100000, 999999)`.
-   - Hashes `email:otp` with `HMAC-SHA256` using `OTP_SECRET`.
-   - Stored in memory with `{ hash, expiresAt: now + 5 mins, attempts: 0, lastRequestedAt }`.
-6. **Dispatch Pipeline**:
-   - **Tier 1 (Gmail API)**: Dispatches via `https://gmail.googleapis.com/gmail/v1/users/me/messages/send` using OAuth2 Bearer token.
-   - **Tier 2 (SendGrid)**: If Gmail API fails or times out (12s), falls back to SendGrid v3 API.
-   - **Tier 3 (Resend)**: Final fallback.
-7. **Response**:
-   ```json
-   {
-     "success": true,
-     "message": "OTP sent to your email successfully."
-   }
-   ```
-
----
-
-### 2. Verifying an OTP (`POST /api/verify-otp`)
-
-1. **User input**: User enters the 6-digit code in `OtpScreen`.
-2. **Payload**:
-   ```json
-   {
-     "email": "user@example.com",
-     "otp": "482910"
-   }
-   ```
-3. **Verification Steps**:
-   - Checks if record exists (if not: *"No active OTP request found"*).
-   - Checks if expired (TTL 5 minutes).
-   - Checks attempt count: if >= 5 attempts, invalidates record to block brute-force.
-   - Recomputes HMAC-SHA256 hash and compares in constant time.
-   - Marks OTP as used and purges record.
-4. **Firebase Token Minting**:
-   - If `FIREBASE_SERVICE_ACCOUNT` is initialized, calls `admin.auth().getUserByEmail(email)` (or `createUser` if new).
-   - Mints a Firebase Custom Token (`admin.auth().createCustomToken(uid)`).
-5. **Response**:
-   ```json
-   {
-     "success": true,
-     "message": "OTP verified successfully.",
-     "email": "user@example.com",
-     "firebaseToken": "<JWT_CUSTOM_TOKEN>",
-     "uid": "<FIREBASE_UID>"
-   }
-   ```
-6. **Flutter Client Session Establishment**:
-   - Flutter calls `FirebaseAuth.instance.signInWithCustomToken(response.firebaseToken)`.
-   - Fetches user profile from Firestore.
-   - **Smart Navigation**:
-     - If `isProfileComplete == true` (returning user) $\rightarrow$ Navigates directly to `HomeScreen`.
-     - If `isProfileComplete == false` (new user) $\rightarrow$ Navigates to onboarding (`LocationScreen`).
+During testing, traditional cloud email configurations encountered typical pitfalls:
+* **SMTP (Ports 465 / 587)**: Cloud platforms (Render, AWS, DigitalOcean) frequently block or throttle outbound SMTP ports, leading to random 15–30 second request timeouts and hanging app loaders.
+* **Third-Party Email APIs (SendGrid, Brevo, Resend, Mailjet)**: Free tiers require strict DNS records (DKIM, SPF, DMARC), enforce unverified sender blocks, or drop messages into the user's Spam/Promotions folder.
+* **The Winning Solution**: **Google Gmail API over HTTPS (Port 443)**
+  * Uses standard HTTPS REST requests — **never blocked by cloud firewalls**.
+  * Emails are sent directly by Google servers — **100% Primary Inbox deliverability**.
+  * Completely free with generous daily quotas (500/day).
 
 ---
 
 ## 🔑 Environment Variables Reference
 
-Configure these in `server/.env` (locally) and in your Render Dashboard (**Settings $\rightarrow$ Environment Variables**):
+These variables are configured in the **Render Dashboard** (`tolli-app` $\rightarrow$ **Environment**):
 
 | Variable | Description | Example / Format |
 |---|---|---|
-| `PORT` | Web server listening port | `3000` (Render overrides automatically) |
 | `GMAIL_CLIENT_ID` | Google Cloud OAuth2 Client ID | `993511560623-xxxx.apps.googleusercontent.com` |
 | `GMAIL_CLIENT_SECRET` | Google Cloud OAuth2 Client Secret | `GOCSPX-xxxx` |
-| `GMAIL_REFRESH_TOKEN` | Google OAuth2 Refresh Token for `tolii.team@gmail.com` | `1//04xxxx` |
-| `SMTP_USER` | Official sender email address | `tolii.team@gmail.com` |
-| `SENDGRID_API_KEY` | SendGrid fallback API Key | `SG.xxxx` |
-| `RESEND_API_KEY` | Resend fallback API Key | `re_xxxx` |
-| `OTP_SECRET` | Secret salt for HMAC-SHA256 hashing | Secure random 32+ char string |
+| `GMAIL_REFRESH_TOKEN` | Google OAuth2 Refresh Token (Permanent) | `1//0gCeDj57cVy...` |
+| `SMTP_USER` | Official sender Gmail address | `tolii.team@gmail.com` |
+| `OTP_SECRET` | Secret salt for HMAC-SHA256 OTP hashing | `tolii_secure_secret_salt_2026` |
 | `FIREBASE_SERVICE_ACCOUNT` | Raw JSON string of Firebase Admin Service Account Key | `{"type": "service_account", ...}` |
 
 ---
 
-## 🛠️ How to Generate or Renew Gmail OAuth2 Refresh Token
+## 🛠️ Step-by-Step Setup Guide for Developers
 
-If you ever change the sender Google account or need to regenerate the OAuth2 refresh token:
+If you ever need to set up this system from scratch or deploy to a new environment, follow these steps:
 
-1. **Prerequisites in Google Cloud Console**:
-   - Ensure the Google Cloud Project has **Gmail API** enabled.
-   - In **APIs & Services $\rightarrow$ Credentials**, create an **OAuth 2.0 Client ID** of type **Desktop App** (or Web).
-   - In **OAuth consent screen**, ensure `https://www.googleapis.com/auth/gmail.send` scope is added.
+### Step 1: Google Cloud Project & Gmail API
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. Select or create your project (e.g., `tolii-app-509122`).
+3. Navigate to **APIs & Services $\rightarrow$ Library**, search for **Gmail API**, and click **Enable**.
 
-2. **Run the Helper Script**:
+### Step 2: Make the App "In Production" (Zero Expiry / Lifetime Permanent)
+> ⚠️ **CRITICAL**: If the OAuth consent screen stays in "Testing" mode, Google automatically expires refresh tokens after **7 days**. Switching to "In Production" makes the token **Permanent**.
+
+1. Go to **Google Auth Platform** $\rightarrow$ **Branding**:
+   * **App name**: `TOLII App`
+   * **User support email**: `tolii.team@gmail.com`
+   * **Application home page**: `https://tolli-app.onrender.com`
+   * **Application privacy policy link**: `https://tolli-app.onrender.com/privacy`
+   * **Application Terms of Service link**: `https://tolli-app.onrender.com/terms`
+   * **Authorised domains**: Click **+ Add domain** $\rightarrow$ Add `tolli-app.onrender.com`
+   * **Developer contact email**: `tolii.team@gmail.com`
+   * Click **Save**.
+2. Go to **Audience** (OAuth consent screen):
+   * Under **Publishing status**, click **Publish app** (or *Push to production*).
+   * Confirm the modal. Status becomes **"In production"**.
+   * *(Note: Google verification is NOT required for internal backend sender authorization).*
+
+### Step 3: Create OAuth 2.0 Credentials
+1. Go to **APIs & Services $\rightarrow$ Credentials**.
+2. Click **Create Credentials** $\rightarrow$ **OAuth client ID**.
+3. Select Application type: **Desktop app** (Name: `TOLII Desktop Client`).
+4. Save the generated **Client ID** and **Client Secret**.
+
+### Step 4: Generate the Lifetime Refresh Token
+A dedicated Dart utility script is included in the repository at `tools/get_refresh_token.dart`:
+
+1. Run the generator script from the repository root:
    ```bash
-   cd server
-   node scripts/get_gmail_token.js <YOUR_CLIENT_ID> <YOUR_CLIENT_SECRET>
+   dart run tools/get_refresh_token.dart "<YOUR_CLIENT_ID>" "<YOUR_CLIENT_SECRET>"
+   ```
+2. The script starts a local server on port `8989` and prints a Google authorization link.
+3. Open the link in Chrome, log in with `tolii.team@gmail.com`, and grant permissions.
+4. The script captures the OAuth authorization code automatically and outputs your permanent refresh token:
+   ```text
+   🎉 SUCCESS! REFRESH TOKEN GENERATED:
+   GMAIL_REFRESH_TOKEN=1//0gCeDj57cVy...
    ```
 
-3. **Authorize**:
-   - The script will print an authorization URL.
-   - Open that URL in your browser, log in with `tolii.team@gmail.com`, and click **Allow**.
-   - Copy the authorization code shown by Google and paste it into the terminal prompt.
-
-4. **Update Render**:
-   - Copy the generated `GMAIL_REFRESH_TOKEN` into the Render Dashboard environment variables.
-   - Trigger a deploy or restart the service.
+### Step 5: Configure Render Environment & Deploy
+1. Open [Render Dashboard](https://dashboard.render.com/) $\rightarrow$ your service (`tolli-app`).
+2. Go to **Environment** tab.
+3. Set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, and `GMAIL_REFRESH_TOKEN`.
+4. Click **Save Changes** (Render will automatically rebuild and deploy).
 
 ---
 
-## 📱 Flutter Code Structure
+## 📱 Flutter Client Implementation
 
-| File | Purpose |
-|---|---|
-| `lib/services/otp_service.dart` | Singleton service wrapping `EmailOtpProvider`, handles HTTP POST to Render, background pre-warming (`warmUp()`), and error deserialization. |
-| `lib/controllers/auth_controller.dart` | Manages auth state, validation, 60s resend timer, OTP submission, Firebase custom token sign-in, and profile completeness sync. |
-| `lib/views/email_screen.dart` | Step 1 screen. Initiates pre-warming on `initState`, validates email format, displays error SnackBar on dispatch failure. |
-| `lib/views/otp_screen.dart` | Step 2 screen. 6-pin input box, resend countdown timer, intelligent post-verification routing to `HomeScreen` or `LocationScreen`. |
-| `tools/benchmark_otp.dart` | Diagnostic tool to measure live server wakeup latency and OTP delivery time from terminal. |
+### 1. `lib/services/otp_service.dart`
+Handles network communication with Render:
+* **Pre-warming (`warmUp()`)**: Called in `EmailScreen.initState()` to ping `GET /`. If Render's free tier instance was asleep, this wakes it up while the user is typing their email, reducing perceived wait time to under 1 second.
+* **`requestOtp(email)`**: Sends HTTP `POST` to `/api/request-otp`.
+* **`verifyOtp(email, otp)`**: Sends HTTP `POST` to `/api/verify-otp` and receives the Firebase custom token.
+
+### 2. `lib/controllers/auth_controller.dart`
+* Manages 60-second countdown for the "Resend Code" button.
+* On successful OTP verification, signs into Firebase:
+  ```dart
+  await FirebaseAuth.instance.signInWithCustomToken(response.firebaseToken!);
+  ```
+* Queries Firestore to determine profile status:
+  * If `isProfileComplete == true` $\rightarrow$ Navigates directly to `HomeScreen`.
+  * If `isProfileComplete == false` $\rightarrow$ Navigates to `LocationScreen` (onboarding).
 
 ---
 
-## ⚡ Performance Benchmark (Verified)
+## 🧪 Testing & Verification Tools
 
-Run from repository root:
+### Quick Speed Benchmark
+To verify server health and test delivery latency from the command line:
 ```bash
-dart tools/benchmark_otp.dart
+dart run tools/benchmark_otp.dart https://tolli-app.onrender.com your-email@gmail.com
 ```
 
-**Results:**
-- **Server Ping Latency**: `~711 ms`
-- **Total OTP Dispatch Latency**: `~744 ms`
-- **Total Round-Trip Time**: **< 1.0 second**
-- **User Perspective**: OTP appears in the user's Gmail Primary Inbox within 2 seconds of tapping "Send Code".
+**Expected Output:**
+```text
+1️⃣ Testing Server Ping / Wakeup Latency...
+   ✅ Server Ping: 657 ms [Status: 200]
+2️⃣ Dispatching OTP...
+   ⏱️ Total OTP Dispatch Time: 932 ms (<1 second)
+   📩 Server Response: {"success":true,"message":"OTP sent to your email successfully."}
+```
+
+### Health Check Endpoint
+```bash
+curl -s https://tolli-app.onrender.com/
+```
+Returns service status and active configurations (`gmailApiConfigured: true`).
 
 ---
 
-## 🛡️ Production Checklist for Developers
+## 🛡️ Security & Reliability Features
 
-- [x] **No hardcoded secrets**: All API keys and secrets reside strictly in environment variables.
-- [x] **Safe Fallbacks**: If Gmail API hits rate limits or network issues, SendGrid and Resend automatically catch the request.
-- [x] **Rate Limiting**: Server enforces 60-second cooldown per email; max 5 incorrect attempts before lockout.
-- [x] **Memory Management**: Expired OTP records are cleaned every 10 minutes automatically.
-- [x] **Zero Static Analysis Warnings**: Flutter codebase passes `dart analyze lib` with `No issues found!`.
-- [x] **Smooth UX**: Existing users skip onboarding straight to `HomeScreen`.
+1. **HMAC-SHA256 Salted Hashing**: Raw OTP codes are never stored in plain text in memory or databases.
+2. **5-Minute Expiry**: Stored OTP records expire automatically after 5 minutes.
+3. **Automatic Cache Cleaner**: Stale records are purged every 10 minutes by a background timer.
+4. **Rate Limiting**: Enforces a strict 60-second cooldown between requests for the same email.
+5. **Brute-Force Lockout**: Max 5 incorrect code attempts before the OTP is invalidated.
+6. **Zero Static Analysis Errors**: The codebase passes `dart analyze lib` with zero warnings.

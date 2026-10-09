@@ -32,10 +32,14 @@ class _OtpScreenState extends State<OtpScreen> {
 
   Future<void> _handleVerify() async {
     FocusScope.of(context).unfocus();
+    debugPrint('====================================================');
+    debugPrint('[UI OTP SCREEN] 🔘 "Verify" button tapped for OTP: "${_controller.state.otp}"');
 
     final success = await _controller.verifyOtp();
+    debugPrint('[UI OTP SCREEN] Verification result: $success, isProfileComplete: ${_controller.state.isProfileComplete}');
     if (success && mounted) {
       if (_controller.state.isProfileComplete) {
+        debugPrint('[UI OTP SCREEN] 🚀 Profile complete! Navigating directly to HomeScreen.');
         Navigator.of(context).pushAndRemoveUntil(
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
@@ -244,28 +248,76 @@ class _OtpScreenState extends State<OtpScreen> {
                                   ),
                                   const SizedBox(height: 16),
 
-                                  // Resend OTP Countdown / Action Text
+                                  // Expiration Notice
+                                  Center(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.timer_outlined,
+                                          size: 13,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Code is valid for 5 minutes',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+
+                                  // Resend OTP Action / Disabled Countdown
                                   Center(
                                     child: _controller.canResend
-                                        ? GestureDetector(
-                                            onTap: () =>
-                                                _controller.resendOtp(),
+                                        ? TextButton(
+                                            onPressed: _controller.state.isLoading
+                                                ? null
+                                                : () async {
+                                                    final messenger = ScaffoldMessenger.of(context);
+                                                    await _controller.resendOtp();
+                                                    if (mounted && _controller.state.otpError == null) {
+                                                      messenger.showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text('A fresh verification code was sent to your email.'),
+                                                          backgroundColor: AppColors.primary,
+                                                          duration: Duration(seconds: 3),
+                                                        ),
+                                                      );
+                                                    }
+                                                  },
+                                            style: TextButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                              minimumSize: Size.zero,
+                                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            ),
                                             child: Text(
                                               'Resend OTP',
-                                              style: AppTypography.caption
-                                                  .copyWith(
+                                              style: AppTypography.caption.copyWith(
                                                 color: AppColors.primary,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 13,
                                               ),
                                             ),
                                           )
-                                        : Text(
-                                            'Resend OTP in ${_controller.formattedCountdown}',
-                                            style:
-                                                AppTypography.caption.copyWith(
-                                              color: AppColors.textSecondary,
-                                              fontSize: 12,
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFF1F5F9),
+                                              borderRadius: BorderRadius.circular(20),
+                                            ),
+                                            child: Text(
+                                              'Resend OTP in ${_controller.formattedCountdown}',
+                                              style: AppTypography.caption.copyWith(
+                                                color: AppColors.textSecondary,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
                                             ),
                                           ),
                                   ),

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -84,7 +85,17 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
     FocusScope.of(context).unfocus();
 
     final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+    debugPrint('====================================================');
+    debugPrint('[UI CREATE PROFILE] 🔘 "Create Profile" button clicked');
+    debugPrint('[UI CREATE PROFILE] Name: "$firstName $lastName"');
+    debugPrint('[UI CREATE PROFILE] Gender: "$_selectedGender"');
+    debugPrint('[UI CREATE PROFILE] FirebaseAuth.currentUser: ${currentUid != null ? "UID: $currentUid" : "NULL (NOT AUTHENTICATED) ❌"}');
+
     if (firstName.isEmpty) {
+      debugPrint('[UI CREATE PROFILE] ⚠️ First name validation failed');
       HapticFeedback.heavyImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -105,14 +116,16 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
 
     _controller.updateProfileNames(
       firstName: firstName,
-      lastName: _lastNameController.text.trim(),
+      lastName: lastName,
     );
     _controller.updateGender(_selectedGender);
 
+    debugPrint('[UI CREATE PROFILE] 🚀 Calling _controller.createProfile()...');
     final success = await _controller.createProfile();
     if (!mounted) return;
 
     if (success) {
+      debugPrint('[UI CREATE PROFILE] ✅ Profile created successfully! Navigating to HomeScreen...');
       HapticFeedback.mediumImpact();
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
@@ -132,11 +145,15 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
         ),
         (route) => false,
       );
-    } else if (_controller.state.usernameError != null) {
+    } else {
       HapticFeedback.heavyImpact();
+      final errorMsg = _controller.state.authError ??
+          _controller.state.usernameError ??
+          'Failed to create profile. Please check your connection and try again.';
+      debugPrint('[UI CREATE PROFILE ERROR] ❌ Profile creation failed: $errorMsg');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_controller.state.usernameError!),
+          content: Text(errorMsg),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

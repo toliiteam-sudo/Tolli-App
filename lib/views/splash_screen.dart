@@ -89,13 +89,21 @@ class _SplashScreenState extends State<SplashScreen>
     final authController = AuthController.instance;
     Widget targetScreen;
 
+    debugPrint('====================================================');
+    debugPrint('[SPLASH SCREEN] 🚀 App Startup Auth Check');
+    debugPrint('[SPLASH SCREEN] isFirebaseAuthenticated: ${authController.isFirebaseAuthenticated}');
+    debugPrint('[SPLASH SCREEN] isProfileComplete: ${authController.state.isProfileComplete}');
+
     if (authController.isFirebaseAuthenticated) {
       if (authController.state.isProfileComplete) {
+        debugPrint('[SPLASH SCREEN] ✅ Authenticated user with complete profile -> Navigating to HomeScreen');
         targetScreen = const HomeScreen();
       } else {
+        debugPrint('[SPLASH SCREEN] ⚠️ Authenticated user but profile incomplete -> Navigating to LocationScreen');
         targetScreen = LocationScreen(authController: authController);
       }
     } else {
+      debugPrint('[SPLASH SCREEN] ℹ️ User not logged in -> Navigating to WelcomeScreen');
       targetScreen = const WelcomeScreen();
     }
 

@@ -42,25 +42,42 @@ class EmailOtpProvider implements BaseOtpProvider {
 
   @override
   Future<OtpResponse> requestOtp(String email) async {
+    debugPrint('====================================================');
+    debugPrint('[OTP REQUEST] 📤 Dispatching to: $email');
+    debugPrint('[OTP REQUEST] URL: $baseUrl/api/request-otp');
     try {
+      final stopwatch = Stopwatch()..start();
       final response = await http.post(
         Uri.parse('$baseUrl/api/request-otp'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': email.trim()}),
       ).timeout(const Duration(seconds: 40));
+      stopwatch.stop();
+
+      debugPrint('[OTP REQUEST] 📥 Response Status: ${response.statusCode} in ${stopwatch.elapsedMilliseconds}ms');
+      debugPrint('[OTP REQUEST] 📦 Response Body: ${response.body}');
 
       final Map<String, dynamic> data = jsonDecode(response.body);
+      final isSuccess = data['success'] == true;
+      if (isSuccess) {
+        debugPrint('[OTP REQUEST] ✅ OTP successfully sent!');
+      } else {
+        debugPrint('[OTP REQUEST ERROR] ❌ Server returned failure: ${data['message']}');
+      }
+
       return OtpResponse(
-        success: data['success'] == true,
-        message: data['message'] ?? (data['success'] == true ? 'OTP sent successfully' : 'Failed to send OTP'),
+        success: isSuccess,
+        message: data['message'] ?? (isSuccess ? 'OTP sent successfully' : 'Failed to send OTP'),
       );
     } on TimeoutException {
+      debugPrint('[OTP REQUEST TIMEOUT] ⏱️ Server timeout after 40s');
       return OtpResponse(
         success: false,
         message: 'Server took too long to respond. Please try again.',
       );
-    } catch (e) {
-      debugPrint('[OtpService] Error sending OTP request: $e');
+    } catch (e, stack) {
+      debugPrint('[OTP REQUEST EXCEPTION] 💥 Error sending OTP: $e');
+      debugPrint('$stack');
       return OtpResponse(
         success: false,
         message: 'Could not connect to authentication server. Please check your internet connection.',
@@ -70,7 +87,11 @@ class EmailOtpProvider implements BaseOtpProvider {
 
   @override
   Future<OtpResponse> verifyOtp(String email, String otp) async {
+    debugPrint('====================================================');
+    debugPrint('[OTP VERIFY] 🔐 Verifying OTP for: $email, Code: $otp');
+    debugPrint('[OTP VERIFY] URL: $baseUrl/api/verify-otp');
     try {
+      final stopwatch = Stopwatch()..start();
       final response = await http.post(
         Uri.parse('$baseUrl/api/verify-otp'),
         headers: {'Content-Type': 'application/json'},
@@ -79,21 +100,45 @@ class EmailOtpProvider implements BaseOtpProvider {
           'otp': otp.trim(),
         }),
       ).timeout(const Duration(seconds: 30));
+      stopwatch.stop();
+
+      debugPrint('[OTP VERIFY] 📥 Response Status: ${response.statusCode} in ${stopwatch.elapsedMilliseconds}ms');
+      debugPrint('[OTP VERIFY] 📦 Response Body: ${response.body}');
 
       final Map<String, dynamic> data = jsonDecode(response.body);
+      final isSuccess = data['success'] == true;
+      final firebaseToken = data['firebaseToken'] as String?;
+      final uid = data['uid'] as String?;
+
+      if (isSuccess) {
+        debugPrint('[OTP VERIFY] ✅ OTP Code Validated!');
+        if (firebaseToken != null && firebaseToken.isNotEmpty) {
+          debugPrint('[OTP VERIFY] 🎟️ Firebase Custom Token received: ${firebaseToken.substring(0, 15)}... (UID: $uid)');
+        } else {
+          debugPrint('----------------------------------------------------');
+          debugPrint('[OTP VERIFY WARNING] ⚠️ "firebaseToken" is NULL in response!');
+          debugPrint('[OTP VERIFY WARNING] 💡 The Render server needs FIREBASE_SERVICE_ACCOUNT to generate login tokens.');
+          debugPrint('----------------------------------------------------');
+        }
+      } else {
+        debugPrint('[OTP VERIFY ERROR] ❌ Verification failed: ${data['message']}');
+      }
+
       return OtpResponse(
-        success: data['success'] == true,
-        message: data['message'] ?? (data['success'] == true ? 'OTP verified' : 'Verification failed'),
-        firebaseToken: data['firebaseToken'] as String?,
-        uid: data['uid'] as String?,
+        success: isSuccess,
+        message: data['message'] ?? (isSuccess ? 'OTP verified' : 'Verification failed'),
+        firebaseToken: firebaseToken,
+        uid: uid,
       );
     } on TimeoutException {
+      debugPrint('[OTP VERIFY TIMEOUT] ⏱️ Server timeout after 30s');
       return OtpResponse(
         success: false,
         message: 'Server took too long to respond. Please try again.',
       );
-    } catch (e) {
-      debugPrint('[OtpService] Error verifying OTP: $e');
+    } catch (e, stack) {
+      debugPrint('[OTP VERIFY EXCEPTION] 💥 Error verifying OTP: $e');
+      debugPrint('$stack');
       return OtpResponse(
         success: false,
         message: 'Verification connection failed. Please try again.',

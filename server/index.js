@@ -231,11 +231,23 @@ try {
       credential: admin.credential.cert(serviceAccount)
     });
     isFirebaseAdminInitialized = true;
-    console.log('Firebase Admin initialized successfully with Service Account');
+    console.log('Firebase Admin initialized successfully with Service Account from ENV');
   } else {
-    admin.initializeApp();
-    isFirebaseAdminInitialized = true;
-    console.log('Firebase Admin initialized with default credentials');
+    const fs = require('fs');
+    const path = require('path');
+    const localKeyPath = path.join(__dirname, 'serviceAccountKey.json');
+    if (fs.existsSync(localKeyPath)) {
+      const serviceAccount = JSON.parse(fs.readFileSync(localKeyPath, 'utf8'));
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      isFirebaseAdminInitialized = true;
+      console.log('Firebase Admin initialized successfully with local serviceAccountKey.json');
+    } else {
+      admin.initializeApp();
+      isFirebaseAdminInitialized = true;
+      console.log('Firebase Admin initialized with default credentials');
+    }
   }
 } catch (e) {
   console.warn('Firebase Admin initialization deferred/failed:', e.message);
