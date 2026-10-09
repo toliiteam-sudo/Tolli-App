@@ -157,3 +157,144 @@ Cloud platforms like Render block or throttle outbound SMTP ports (`25`, `465`, 
   * Created `EMAIL_OTP_ARCHITECTURE.md` for dedicated OTP docs.
   * Created `DEVELOPER_WORK_LOG.md` as master developer reference.
   * Updated `README.md` with developer entry point guidance.
+
+---
+
+## 🌐 8. External Cloud Services & Web Portals Reference
+
+The TOLII project integrates several web platforms. Any new developer or AI assistant should refer to these URLs and credentials:
+
+| Service / Platform | Role / Purpose | URL / Access | Primary Credentials / Notes |
+|---|---|---|---|
+| **GitHub Repository** | Source code, branches (`main`, `dev`, feature branches) | `https://github.com/toliiteam-sudo/Tolli-App` | Account: `toliiteam-sudo`<br>Shared Team Google Account: `tolii.team@gmail.com` |
+| **Render Web Service** | Hosts Node.js backend (`server/index.js`) for OTP & Auth API | `https://dashboard.render.com`<br>Live API: `https://tolli-app.onrender.com` | Sign in with GitHub (`toliiteam-sudo`) or Google (`tolii.team@gmail.com`).<br>Service Name: `tolli-app` |
+| **Firebase Console** | Cloud Firestore, Firebase Authentication, Security Rules | `https://console.firebase.google.com` | Project: `tolii-app` (or active TOLII project).<br>Uses `FIREBASE_SERVICE_ACCOUNT` for admin token minting. |
+| **Google Cloud Console** | Gmail REST API OAuth 2.0, OAuth Consent Screen, Credentials | `https://console.cloud.google.com` | Project: `Tolii App`<br>OAuth Consent status: **In production** (permanent tokens). |
+
+---
+
+## 🚀 9. Developer Git Workflow & Automated Sync Guide
+
+> [!IMPORTANT]
+> **GOLDEN RULE: NEVER CODE DIRECTLY ON `dev` OR `main`!**  
+> Always create a new feature branch (`feature/<your-feature-name>`), commit your work there, test thoroughly, and then create a Pull Request or merge into `dev`.
+
+### 🔑 A. Connecting to GitHub Repository (One-Time Setup)
+
+When a developer sets up on a new PC:
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/toliiteam-sudo/Tolli-App.git
+   cd Tolli-App
+   ```
+2. **Configure Git Identity**:
+   ```bash
+   git config user.name "toliiteam-sudo"
+   git config user.email "tolii.team@gmail.com"
+   ```
+3. **Verify Remote Connection**:
+   ```bash
+   git remote -v
+   # Should display:
+   # origin https://github.com/toliiteam-sudo/Tolli-App.git (fetch)
+   # origin https://github.com/toliiteam-sudo/Tolli-App.git (push)
+   ```
+
+---
+
+### 🔄 B. Automated Setup & Pull Script (`scripts/sync_dev.ps1`)
+
+Developers can run this automated command whenever they start work to sync with the latest `dev` code cleanly without merge conflicts:
+
+#### In PowerShell (Windows):
+```powershell
+# 1. Fetch latest changes from GitHub
+git fetch origin
+
+# 2. Stash or discard uncommitted temporary changes to keep working directory clean
+git status --short
+# If you have uncommitted changes you want to keep:
+git stash
+
+# 3. Switch to dev branch and pull latest code
+git checkout dev
+git pull origin dev
+
+# 4. Create your new feature branch for today's work
+# Replace 'feature-name' with what you are building (e.g., feature/chat-screen, feature/turf-booking)
+git checkout -b feature/<feature-name>
+
+# 5. Get Flutter dependencies
+flutter pub get
+```
+
+#### In Bash / macOS / Linux:
+```bash
+git fetch origin
+git stash
+git checkout dev
+git pull origin dev
+git checkout -b feature/<feature-name>
+flutter pub get
+```
+
+---
+
+### 🧹 C. Clean Working Directory Rules (Before Pull & Before Push)
+
+Before pulling or pushing, always ensure your working tree is clean:
+
+1. **Check Status**:
+   ```bash
+   git status
+   ```
+2. **If you have untracked build files or temporary artifacts**:
+   ```bash
+   flutter clean
+   flutter pub get
+   ```
+3. **If you have unfinished edits you don't want to lose**:
+   ```bash
+   git stash
+   # To restore them later on your feature branch:
+   git stash pop
+   ```
+4. **If you want to discard accidental modifications**:
+   ```bash
+   git restore .
+   ```
+
+---
+
+### 📤 D. Daily Developer Push Workflow (Step-by-Step)
+
+```
+[Start Work]
+     │
+     ▼
+git checkout -b feature/my-new-task
+     │
+     ▼ (Write code, fix bugs, add features)
+flutter analyze
+dart run tools/benchmark_otp.dart https://tolli-app.onrender.com tolii.team@gmail.com
+     │
+     ▼
+git add .
+git commit -m "feat(module): descriptive explanation of what changed"
+     │
+     ▼
+git push -u origin feature/my-new-task
+     │
+     ▼
+[Open GitHub PR: feature/my-new-task ──> dev]
+```
+
+> [!CAUTION]
+> **NEVER PUSH SECRETS TO GITHUB!**
+> GitHub has active Secret Scanning and Push Protection. Never hardcode:
+> - Google OAuth Client Secrets
+> - Firebase private keys
+> - Resend / Brevo API keys
+> Always store them in environment variables or Render dashboard secrets.
+
