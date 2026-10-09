@@ -375,7 +375,11 @@ app.get('/api/test-transports', async (req, res) => {
       ]);
       results.gmailApi = { success: true, message: 'OAuth2 token obtained successfully', tokenPrefix: token.substring(0, 10) + '...' };
     } catch (e) {
-      results.gmailApi = { success: false, error: e.message };
+      results.gmailApi = {
+        success: false,
+        error: e.message,
+        configuredClientId: GMAIL_CLIENT_ID ? (GMAIL_CLIENT_ID.substring(0, 25) + '...' + GMAIL_CLIENT_ID.slice(-10)) : null
+      };
     }
   } else {
     results.gmailApi = { success: false, error: 'Not configured (missing CLIENT_ID, CLIENT_SECRET or REFRESH_TOKEN)' };
