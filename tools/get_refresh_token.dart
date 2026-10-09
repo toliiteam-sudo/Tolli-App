@@ -2,9 +2,44 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+/// 🔑 TOLII GMAIL OAUTH2 REFRESH TOKEN GENERATOR
+///
+/// Usage:
+///   dart run tools/get_refresh_token.dart <CLIENT_ID> <CLIENT_SECRET>
+///
+/// OR set environment variables before running:
+///   set GMAIL_CLIENT_ID=your-client-id
+///   set GMAIL_CLIENT_SECRET=your-client-secret
+///   dart run tools/get_refresh_token.dart
+///
+/// ⚠️  NEVER hardcode secrets in this file. They are stored in:
+///      Render Dashboard → Environment Variables (GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
+///      Google Cloud Console → APIs & Services → Credentials
+///
 void main(List<String> args) async {
-  final clientId = args.isNotEmpty ? args[0] : 'YOUR_GMAIL_CLIENT_ID_HERE';
-  final clientSecret = args.length > 1 ? args[1] : 'YOUR_GMAIL_CLIENT_SECRET_HERE';
+  final clientId = args.isNotEmpty
+      ? args[0]
+      : Platform.environment['GMAIL_CLIENT_ID'] ?? '';
+  final clientSecret = args.length > 1
+      ? args[1]
+      : Platform.environment['GMAIL_CLIENT_SECRET'] ?? '';
+
+  if (clientId.isEmpty || clientSecret.isEmpty) {
+    print('');
+    print('❌ ERROR: CLIENT_ID and CLIENT_SECRET are required.');
+    print('');
+    print('Usage:');
+    print('  dart run tools/get_refresh_token.dart <CLIENT_ID> <CLIENT_SECRET>');
+    print('');
+    print('OR set env vars:');
+    print('  \$env:GMAIL_CLIENT_ID="your-client-id"');
+    print('  \$env:GMAIL_CLIENT_SECRET="your-client-secret"');
+    print('  dart run tools/get_refresh_token.dart');
+    print('');
+    print('Find credentials at: https://console.cloud.google.com/apis/credentials');
+    exit(1);
+  }
+
   const port = 8989;
   final redirectUri = 'http://127.0.0.1:$port';
 
