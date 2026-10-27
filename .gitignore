@@ -48,3 +48,7 @@ app.*.map.json
 server/node_modules/
 server/.env
 server/serviceAccountKey.json
+rzp-key.csv
+*.csv
+.env
+.env.*
