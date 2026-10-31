@@ -62,7 +62,7 @@ service cloud.firestore {
       // Host can update activity (hostId must remain immutable), or participant updating participantIds/joinedPlayers when joining/leaving
       allow update: if isAuthenticated() 
                     && ((resource.data.hostId == request.auth.uid && request.resource.data.hostId == resource.data.hostId)
-                        || (request.auth.uid in resource.data.participantIds 
+                        || ((request.auth.uid in resource.data.participantIds || request.auth.uid in request.resource.data.participantIds) 
                             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantIds', 'joinedPlayers', 'updatedAt'])));
 
       // Host can delete activity
@@ -132,8 +132,7 @@ service cloud.firestore {
                     && request.auth.uid in request.resource.data.participantIds;
 
       allow update: if isAuthenticated() 
-                    && request.auth.uid in resource.data.participantIds
-                    && request.resource.data.participantIds.hasAll(resource.data.participantIds);
+                    && (request.auth.uid in resource.data.participantIds || request.auth.uid in request.resource.data.participantIds);
 
       match /messages/{messageId} {
         allow read: if isAuthenticated() 
@@ -159,6 +158,40 @@ service cloud.firestore {
                                   
       allow create: if isAuthenticated()
                     && request.resource.data.senderId == request.auth.uid;
+    }
+
+    // Venues Collection Security Rules
+    match /venues/{venueId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+
+      match /courts/{courtId} {
+        allow read: if isAuthenticated();
+        allow write: if false;
+
+        match /slots/{slotId} {
+          allow read: if isAuthenticated();
+          allow write: if false;
+        }
+      }
+    }
+
+    // Bookings Collection Security Rules (Server is source of truth for payment & confirmation)
+    match /bookings/{bookingId} {
+      // Authenticated users can read bookings to verify court slot availability
+      allow read: if isAuthenticated();
+      
+      // Client creation: must own the booking, and initial status cannot be CONFIRMED or COMPLETED
+      allow create: if isAuthenticated() 
+                    && request.resource.data.userId == request.auth.uid
+                    && (!('bookingStatus' in request.resource.data) || request.resource.data.bookingStatus in ['HELD', 'PENDING']);
+
+      // Client update: must own the booking, and client CANNOT self-confirm as paid (only backend Admin verifies payment)
+      allow update: if isAuthenticated() 
+                    && resource.data.userId == request.auth.uid
+                    && (!('bookingStatus' in request.resource.data) || request.resource.data.bookingStatus != 'CONFIRMED');
+
+      allow delete: if false;
     }
   }
 }

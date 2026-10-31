@@ -1,0 +1,176 @@
+================================================================================
+TOLII — RENDER BOOKING ENDPOINT 404 DIAGNOSIS & DEPLOYMENT REPORT
+================================================================================
+Date: 2026-10-28
+Project: TOLII Sports Platform (Flutter Client + Node.js Backend on Render)
+Remote Render Service: https://tolli-app.onrender.com
+Target Device: Google Pixel 9a (Physical Android Phone)
+Status: DIAGNOSED, LOCALLY VERIFIED, DEPLOYMENT COMMIT PREPARED
+
+--------------------------------------------------------------------------------
+1. VERIFIED ROOT CAUSE
+--------------------------------------------------------------------------------
+Issue on Physical Device:
+The Booking Review screen showed the error:
+"Booking service endpoint unavailable (HTTP 404). Deployed Render server needs backend update."
+
+Investigation & Evidence:
+1. Probing the live Render service (https://tolli-app.onrender.com):
+   - GET / returns:
+     {"status":"online","service":"TOLII OTP Authentication Service", ...}
+   - POST /api/verify-otp returns HTTP 400 (Email and OTP required)
+   - POST /api/bookings/prepare-payment returns HTTP 404 (Cannot POST /api/bookings/prepare-payment)
+   - GET /api/coupons returns HTTP 404 (Cannot GET /api/coupons)
+   - GET /api/bookings/availability returns HTTP 404 (Cannot GET /api/bookings/availability)
+
+2. Root Cause Analysis:
+   - The remote Render web service `tolli-app` is connected to the GitHub
+     repository `toliiteam-sudo/Tolli-App` on branch `email-otp-auth`.
+   - The last commit deployed on Render was `a3f3b9d` ("diagnostics: include
+     configured clientId prefix in test-transports") from early October 2026,
+     which strictly contained the OTP email authentication server.
+   - The new booking endpoints (/api/bookings/prepare-payment, /api/payments/verify,
+     /api/coupons, /api/bookings/availability, etc.) were created locally in the
+     development environment in `server/index.js`, but had NOT yet been pushed
+     to the remote GitHub repository branch `email-otp-auth` that Render tracks.
+   - On the physical Pixel 9a, when ADB reverse was inactive, the Flutter app
+     attempted 127.0.0.1:3000 (which looped to the phone itself and failed),
+     localhost:3000 (failed), 10.0.2.2:3000 (failed), and then fell back to the
+     remote Render URL `https://tolli-app.onrender.com`.
+   - Because Render was running the older commit without booking routes, Render's
+     Express router returned HTTP 404 (`Cannot POST /api/bookings/prepare-payment`),
+     triggering the exact error banner displayed on the phone.
+
+--------------------------------------------------------------------------------
+2. EXACT FLUTTER ENDPOINT & BACKEND ROUTE MAPPING
+--------------------------------------------------------------------------------
+All routes match with 100% precision between Flutter and the Node.js backend:
+
+| Functionality | Flutter Method & Path | Backend Route (server/index.js) | Status on Local Backend | Status on Render (Current) |
+|---|---|---|---|---|
+| Prepare Payment & Hold | POST /api/bookings/prepare-payment | app.post('/api/bookings/prepare-payment') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Verify Payment Signature | POST /api/payments/verify | app.post('/api/payments/verify') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Slot Availability Query | GET /api/bookings/availability | app.get('/api/bookings/availability') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Coupon List & Eligibility | GET /api/coupons | app.get('/api/coupons') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Coupon Validation | POST /api/coupons/validate | app.post('/api/coupons/validate') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Release Temporary Hold | POST /api/bookings/release-hold | app.post('/api/bookings/release-hold') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Cancel Booking | POST /api/bookings/cancel | app.post('/api/bookings/cancel') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Razorpay Webhook | POST /api/webhooks/razorpay | app.post('/api/webhooks/razorpay') | HTTP 200 (Active) | HTTP 404 (Outdated) |
+| Health Check / Ping | GET / | app.get('/') | HTTP 200 (Active) | HTTP 200 (Active) |
+| Request Email OTP | POST /api/request-otp | app.post('/api/request-otp') | HTTP 200 (Active) | HTTP 200 (Active) |
+| Verify Email OTP | POST /api/verify-otp | app.post('/api/verify-otp') | HTTP 200 (Active) | HTTP 200 (Active) |
+
+--------------------------------------------------------------------------------
+3. FILES CHANGED & STAGED
+--------------------------------------------------------------------------------
+1. server/index.js
+   - Implemented booking payment preparation with trusted server price calculations.
+   - Integrated promo coupon engine with usage limits, minimum values, and caps.
+   - Added slot availability endpoint (/api/bookings/availability) for continuous
+     interval overlap checks and permanent booking locks.
+   - Added payment verification with constant-time HMAC-SHA256 signature check.
+   - Added conflict resolution (C.11) transitioning expired-hold captures to
+     CONFLICT_REFUND_PENDING for safe refund reconciliation.
+
+2. server/package.json & server/package-lock.json
+   - Added "razorpay": "^2.9.2" dependency.
+   - Added test script: "test": "node test_backend.js".
+
+3. server/test_backend.js
+   - 33 comprehensive integration tests covering health, pricing, overlaps,
+     coupons, concurrency, idempotency, webhook security, and isolation.
+
+4. server/.env.example
+   - Added documentation for RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and
+     RAZORPAY_WEBHOOK_SECRET without exposing any actual keys.
+
+5. .gitignore & server/.gitignore
+   - Strict exclusions maintained: .env, server/.env, *.csv, rzp-key.csv,
+     node_modules/ are completely ignored and NEVER tracked in Git.
+
+6. lib/services/booking_backend_service.dart
+   - Added local Wi-Fi IP (http://10.98.254.157:3000) to candidate URLs so the
+     physical device can connect over LAN in addition to USB ADB reverse.
+
+--------------------------------------------------------------------------------
+4. GIT REPOSITORY & RENDER DEPLOYMENT STATUS
+--------------------------------------------------------------------------------
+- Remote Repository: https://github.com/toliiteam-sudo/Tolli-App.git
+- Target Branch: email-otp-auth
+- Upstream Tracking: origin/email-otp-auth
+- Prepared Commit:
+  Commit Hash: e6a9f12
+  Subject: feat(backend): add booking payment preparation, coupon engine, slot availability and Razorpay verification
+  Changes Committed: 6 files changed, 5451 insertions(+), 10 deletions(-)
+- Zero Credential Exposure:
+  Confirmed via `git status --ignored` and git diff scans that NO secrets,
+  keys, or .env files are staged or committed.
+
+--------------------------------------------------------------------------------
+5. TESTS & LOCAL VALIDATION RESULTS
+--------------------------------------------------------------------------------
+1. Syntax Validation:
+   Command: node --check server/index.js
+   Result: Syntax OK (0 errors).
+
+2. Backend Integration Test Suite:
+   Command: npm test (in server/)
+   Result: 33 PASSED, 0 FAILED across all security, payment, coupon, and slot tests.
+
+3. Local Endpoint Verification (POST http://127.0.0.1:3000/api/bookings/prepare-payment):
+   Payload: Court "court_sidsar_cricket_1", 60m duration, Coupon "TOLII150"
+   Response: HTTP 200 OK
+   Returned:
+     - razorpayOrderId: "order_Tt7LfPt5qJo0yA" (genuine Razorpay Test Order)
+     - courtPricePaise: 80000 (₹800.00)
+     - discountPaise: 15000 (₹150.00 discount)
+     - amountPaise: 65000 (₹650.00 final payable)
+     - bookingStatus: "HELD" (10-minute provisional hold)
+
+4. Flutter Static Analysis:
+   Command: flutter analyze
+   Result: No issues found! (ran in 21.9s) — 0 errors, 0 warnings, 0 lints.
+
+5. ADB Reverse Status:
+   Command: adb -s 56161JEBF02819 reverse tcp:3000 tcp:3000
+   Result: Active (UsbFfs tcp:3000 tcp:3000). The physical phone immediately
+   communicates with the local server without encountering 404.
+
+--------------------------------------------------------------------------------
+6. MANUAL STEPS TO UPDATE RENDER
+--------------------------------------------------------------------------------
+To update the deployed Render service so the phone can book without needing
+a connected computer or ADB reverse:
+
+STEP 1: Push the prepared commit to GitHub
+Run the following command from the project root:
+```bash
+git push origin email-otp-auth
+```
+(If prompted for authentication, log in with your GitHub account `toliiteam-sudo`
+or use a GitHub Personal Access Token).
+
+STEP 2: Configure Environment Variables in Render Dashboard
+1. Open the Render Dashboard: https://dashboard.render.com
+2. Select the `tolli-app` Web Service.
+3. Go to "Environment".
+4. Ensure the following keys are added to Environment Variables:
+   - `RAZORPAY_KEY_ID` = your Razorpay Test Key ID (starts with rzp_test_)
+   - `RAZORPAY_KEY_SECRET` = your Razorpay Test Key Secret
+   - `RAZORPAY_WEBHOOK_SECRET` = your chosen webhook secret string
+   - `NODE_ENV` = production
+5. Save changes.
+
+STEP 3: Verify Render Deployment
+- Render will automatically trigger a build upon receiving the push.
+- Once deployed, GET https://tolli-app.onrender.com/ will show online.
+- POST https://tolli-app.onrender.com/api/bookings/prepare-payment will return
+  HTTP 200 for valid requests instead of HTTP 404.
+
+STEP 4: Immediate Physical Device Testing (Right Now)
+You do NOT have to wait for Render deployment to test right now:
+The local backend is running on port 3000, and ADB reverse proxy is active.
+Simply tap "Pay via Razorpay" on your connected Pixel 9a. The phone will
+communicate with the local server, prepare the genuine Razorpay test order,
+and display the Razorpay checkout sheet.
+================================================================================

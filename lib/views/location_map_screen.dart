@@ -22,13 +22,21 @@ enum LocationScreenState {
 }
 
 class LocationMapScreen extends StatefulWidget {
-  final AuthController authController;
+  final AuthController? authController;
   final LatLng? initialPosition;
+  final String? venueName;
+  final String? address;
+  final double? latitude;
+  final double? longitude;
 
   const LocationMapScreen({
     super.key,
-    required this.authController,
+    this.authController,
     this.initialPosition,
+    this.venueName,
+    this.address,
+    this.latitude,
+    this.longitude,
   });
 
   @override
@@ -421,8 +429,10 @@ class _LocationMapScreenState extends State<LocationMapScreen>
   void _onConfirmLocation() {
     HapticFeedback.mediumImpact();
 
+    final controller = widget.authController ?? AuthController.instance;
+
     // Store selected center coordinates & reverse-geocoded details
-    widget.authController.setMapSelectedLocation(
+    controller.setMapSelectedLocation(
       latitude: _mapCenterPosition.latitude,
       longitude: _mapCenterPosition.longitude,
       address: _resolvedAddress.isNotEmpty ? _resolvedAddress : 'Selected Location',
@@ -437,7 +447,7 @@ class _LocationMapScreenState extends State<LocationMapScreen>
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            InterestsScreen(authController: widget.authController),
+            InterestsScreen(authController: controller),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           final curvedAnimation = CurvedAnimation(
             parent: animation,

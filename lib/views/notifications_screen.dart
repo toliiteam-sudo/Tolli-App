@@ -82,8 +82,9 @@ class NotificationsScreen extends StatelessWidget {
 
   void _approveRequest(BuildContext context, NotificationModel item) async {
     HapticFeedback.lightImpact();
+    bool success = false;
     if (item.relatedActivityId != null && item.senderId != null) {
-      await ActivityRepository().respondToJoinRequest(
+      success = await ActivityRepository().respondToJoinRequest(
         activityId: item.relatedActivityId!,
         request: ActivityRequestModel(
           uid: item.senderId!,
@@ -97,14 +98,25 @@ class NotificationsScreen extends StatelessWidget {
     await NotificationController.instance.markAsRead(item.id);
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Approved ${item.senderName ?? 'player'}\'s request!'),
-          backgroundColor: AppColors.primary,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Approved ${item.senderName ?? 'player'}\'s request!'),
+            backgroundColor: AppColors.primary,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to approve ${item.senderName ?? 'player'}. The activity may already be full.'),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
     }
   }
 

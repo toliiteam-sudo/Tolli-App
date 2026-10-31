@@ -1,0 +1,317 @@
+================================================================================
+TOLII — PREMIUM CHECKOUT UI, COUPON SYSTEM & PERMANENT SLOT BLOCKING REPORT
+================================================================================
+Date: 2026-10-28
+Project: TOLII Sports Venue Booking Platform (Flutter Android + Node.js Backend)
+Target Device: Google Pixel 9a (Physical Android Device)
+Status: PRODUCTION READY / ALL TESTS PASSED
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY & OBJECTIVES ACHIEVED
+--------------------------------------------------------------------------------
+All three core engineering and architectural outcomes have been implemented,
+fully tested, and verified against the existing TOLII codebase without
+rebuilding the application from scratch or using mock data:
+
+1. POLISHED RAZORPAY PAYMENT & PREMIUM MOBILE-FIRST CHECKOUT REVIEW SCREEN
+   - Complete redesign of BookingReviewScreen to a modern, mobile-first, high-end
+     layout adhering to TOLII brand guidelines.
+   - White/light cool-gray canvas (#F8FAFC) with elevated white cards (#FFFFFF),
+     subtle borders (#E2E8F0), clean typography, and TOLII blue (#063E9E).
+   - Structured visual hierarchy: Venue card, booking details card, interactive
+     coupon action row, transparent payment breakdown, cancellation policy, and
+     sticky bottom payment CTA with system inset padding.
+   - Real-time Razorpay order amount synchronized with backend-calculated paise.
+
+2. COMPREHENSIVE COUPON SYSTEM WITH DEDICATED SELECTION SCREEN
+   - New dedicated Coupon Screen (lib/views/coupon_screen.dart) supporting promo
+     code entry, apply/remove interactions, active discount badges, and a curated
+     "Best Promos For You" list.
+   - Authoritative server-side coupon engine in Node.js backend validating promo
+     code eligibility, sport constraints, venue constraints, minimum booking
+     values, validity dates, and per-user usage limits.
+   - Zero-trust architecture: Flutter client never calculates or dictates discount
+     amounts. Razorpay orders are generated exclusively for the server-verified
+     discounted payable amount.
+
+3. RELIABLE SERVER-SIDE PERMANENT SLOT BLOCKING & CONCURRENCY CONTROL
+   - Concurrency-controlled slot reservations preventing overlapping bookings
+     across partial intersections, differing durations, and simultaneous requests.
+   - Live availability API endpoint (GET /api/bookings/availability) integrated
+     with both client-side Firestore listeners and backend synchronization.
+   - Atomic state transitions: Unpaid slots are held with a 10-minute expiry;
+     confirmed payments permanently lock slots against subsequent queries and
+     navigation.
+   - Safe conflict resolution: If payment capture occurs after hold expiry or on a
+     contested slot, booking transitions to CONFLICT_REFUND_PENDING without
+     corrupting reservations.
+   - Updated firestore.rules to prevent unauthorized client status escalation.
+
+--------------------------------------------------------------------------------
+2. ROOT CAUSE DIAGNOSIS: RAZORPAY CHECKOUT CRASH (CLOSING AFTER 1 SECOND)
+--------------------------------------------------------------------------------
+Problem Description:
+When tapping "Pay ₹800 via Razorpay" on the connected Pixel 9a, the Razorpay
+CheckoutActivity sheet opened momentarily for approximately 433ms to 1 second,
+then disappeared, reporting "Payment Failed" on the Flutter screen.
+
+Evidence from Android Logcat & Backend Traces:
+- logcat PID 31316:
+  com.razorpay.CheckoutActivity launched, then immediately closed with
+  ActivityRecord finish-request.
+- Server logs revealed:
+  The Node.js server had initially been running before the user's .env file was
+  created or loaded, causing Razorpay SDK initialization to fail authentication.
+  An early fallback mechanism in the preparation endpoint generated a synthetic
+  order ID (e.g., 'order_' + 20 random characters) when the Razorpay API call
+  threw an authentication error.
+- When the Razorpay Android SDK attempted to fetch checkout metadata for that
+  synthetic order ID against the Razorpay API servers, the Razorpay API returned
+  HTTP 400 (Bad Request: Order does not exist), triggering immediate dismissal
+  of CheckoutActivity by the native SDK.
+
+Permanent Fix:
+1. Validated and configured active Razorpay Test Mode credentials in server/.env.
+2. Completely disabled synthetic/mock order generation in production and
+   development modes in server/index.js. Genuine orders are created directly with
+   the Razorpay REST API using authoritative paise amounts.
+3. Added robust error logging and user-facing notifications if Razorpay order
+   creation encounters network or credential issues.
+4. Verified that subsequent order requests (e.g., order_Tt66UDW2u5nS06) are
+   successfully registered with Razorpay and open the live test checkout modal.
+
+--------------------------------------------------------------------------------
+3. AMOUNT CONSISTENCY FINDINGS (₹600 VS ₹800 EXPLANATION)
+--------------------------------------------------------------------------------
+Investigation:
+Previously, a backend test order returned ₹600 (60,000 paise) while the phone's
+Booking Review screen displayed ₹800 (80,000 paise).
+
+Finding:
+This was NOT a pricing calculation defect or hardcoded mismatch in the app code.
+It occurred because two different courts with different rates were selected:
+- Court 1: "Box Cricket Arena 1" (court_sidsar_cricket_1) has an authoritative
+  rate of ₹800/hour (80,000 paise/hour), matching the physical device test.
+- Court 2: "Pro Pickleball Court A" (court_sidsar_pickleball_1) has an
+  authoritative rate of ₹600/hour (60,000 paise/hour), which was used in
+  backend test #3.
+
+Protection Implemented:
+- The backend TRUSTED_COURT_CONFIGS dictionary now serves as the single source
+  of truth for hourly rates.
+- POST /api/bookings/prepare-payment validates that duration, courtId, and
+  hourly rate match the trusted registry. Any client-side price tampering or
+  mismatched calculation is rejected with HTTP 400.
+- When a valid coupon is applied, the backend subtracts the exact discount in
+  paise and returns { courtPricePaise, discountPaise, amountPaise, appliedCouponCode }.
+  The client displays the breakdown and Razorpay charges the exact amountPaise.
+
+--------------------------------------------------------------------------------
+4. ARCHITECTURE & CHANGED FILES
+--------------------------------------------------------------------------------
+Frontend (Flutter):
+- lib/models/coupon_model.dart (NEW)
+  Defines CouponModel with JSON deserialization, discount formatting, and
+  eligibility messaging.
+- lib/views/coupon_screen.dart (NEW)
+  Dedicated promo screen with custom code text input, active coupon banner,
+  "Best Promos For You" list, eligibility badges, and apply/remove callbacks.
+- lib/views/booking_review_screen.dart (MODIFIED)
+  Complete redesign matching mobile-first specifications with clean white cards,
+  coupon section, itemized bill breakdown, and sticky bottom payment action.
+- lib/models/booking_model.dart (MODIFIED)
+  Added appliedCouponCode support with Firestore serialization/deserialization.
+- lib/services/booking_backend_service.dart (MODIFIED)
+  Added getCoupons(), validateCoupon(), getSlotAvailability(), and updated
+  preparePayment() to pass couponCode and parse server discount breakdown.
+- lib/repositories/venue_repository.dart (MODIFIED)
+  Updated getSlots() to merge Firestore data with backend availability API
+  for immediate, permanent slot blocking reflections.
+- lib/views/select_court_date_slot_screen.dart (MODIFIED)
+  Refreshes slot availability stream upon returning from checkout navigation.
+- test/checkout_coupon_slot_test.dart (NEW)
+  Unit and regression tests for coupon models, discount math, and slot overlaps.
+
+Backend (Node.js & Firestore):
+- server/index.js (MODIFIED)
+  - Configured PROMO_COUPONS catalog with discount rules, caps, and constraints.
+  - Implemented validateAndCalculateCoupon() engine.
+  - Added GET /api/coupons endpoint.
+  - Added POST /api/coupons/validate endpoint.
+  - Added GET /api/bookings/availability endpoint.
+  - Updated POST /api/bookings/prepare-payment to enforce coupons & slot checks.
+  - Updated POST /api/payments/verify with C.11 conflict reconciliation.
+- server/test_backend.js (MODIFIED)
+  Expanded test suite from 21 tests to 33 comprehensive integration tests.
+- firestore.rules (MODIFIED)
+  Secured bookings collection: allows authenticated reads, restricts writes to
+  HELD/PENDING status, and forbids client self-confirmation of PAID status.
+
+--------------------------------------------------------------------------------
+5. OUTCOME 1: POLISHED RAZORPAY PAYMENT & PREMIUM CHECKOUT REVIEW SCREEN
+--------------------------------------------------------------------------------
+Visual Design & Aesthetics:
+- Background: Clean cool-gray canvas (#F8FAFC).
+- Surface: Crisp white cards (#FFFFFF) with subtle outline (#E2E8F0) and
+  restrained box shadow (0px 2px 8px rgba(15, 23, 42, 0.04)).
+- Brand Color: TOLII Blue (#063E9E) as primary accent for icons, highlights,
+  and payment CTA buttons.
+- Sticky Bottom Bar: Fixed container respecting MediaQuery.of(context).padding.bottom
+  ensuring full visibility across Android navigation bars and gesture pill.
+
+Content Hierarchy:
+1. Header: Back navigation icon and "Booking Review" title.
+2. Venue Card: 64x64 rounded venue thumbnail, venue title, verified location badge,
+   and clean address string.
+3. Booking Details Card: Selected court name, sport badge, calendar date,
+   start/end time, duration in minutes, and hourly base rate.
+4. Coupon Action Card: Full-width interactive card with promo badge icon, title,
+   chevron, and current applied coupon status with an inline "Remove" action.
+5. Payment Breakdown:
+   - Court Price (e.g., ₹800.00)
+   - Taxes & Platform Charges (₹0.00 / Included)
+   - Coupon Discount (e.g., -₹150.00 in green)
+   - Total Payable (e.g., ₹650.00 in bold dark slate)
+6. Cancellation Policy: Shield icon with policy summary and rescheduling rules.
+7. Sticky Bottom Button: Displays dynamic final payable: "Pay ₹650 via Razorpay".
+
+--------------------------------------------------------------------------------
+6. OUTCOME 2: CHECKOUT COUPON SYSTEM & DEDICATED COUPON SCREEN
+--------------------------------------------------------------------------------
+Configured Promotional Coupons:
+1. TOLII150: Flat ₹150 off on all court bookings above ₹500 (1 use per user).
+2. PLAYSPORTS20: 20% off on all sports bookings up to ₹250 (min booking ₹600).
+3. CRICKET100: Flat ₹100 off exclusively for Box Cricket (min booking ₹700).
+4. WEEKENDVIP: Flat ₹200 off for bookings of 90 minutes or longer (min booking ₹1000).
+
+Server Validation Rules:
+- Discount Type: 'fixed' (in paise) or 'percentage' (with maxDiscountPaise cap).
+- Minimum Booking Amount: Verified against server-calculated court price.
+- Applicable Sports & Venues: Validated against target booking details.
+- Validity Dates: Checked against UTC booking timestamps.
+- Per-User Usage Limit: Checked against in-memory/database confirmed bookings.
+- Client Independence: Client requests only pass the coupon code; backend
+  computes the authoritative discount.
+
+Dedicated Coupon Screen UI (lib/views/coupon_screen.dart):
+- Header with back arrow and "Coupons & Offers" title.
+- Promo input box with uppercase auto-capitalization and "Apply" button.
+- Applied coupon banner with green theme, discount confirmation, and "Remove".
+- "BEST PROMOS FOR YOU" section with ticket-style card edges, bold code tags,
+  discount descriptions, eligibility criteria, and "APPLY" action buttons.
+- Ineligible coupons styled with muted opacity and descriptive explanation
+  (e.g., "Requires minimum booking of ₹700").
+
+--------------------------------------------------------------------------------
+7. OUTCOME 3: RELIABLE PERMANENT SLOT BLOCKING & CONCURRENCY CONTROL
+--------------------------------------------------------------------------------
+Slot Blocking Mechanism:
+1. Availability Verification:
+   When user opens court/slot selection, Flutter requests slot availability from
+   Firestore and queries GET /api/bookings/availability.
+2. Temporal Intersection Math:
+   Overlaps are calculated using continuous intervals:
+   (newStart < existingEnd) && (newEnd > existingStart)
+   This catches full overlaps, partial overlaps, and multi-hour span collisions.
+3. Atomic Hold Creation:
+   POST /api/bookings/prepare-payment atomically creates a booking record with
+   bookingStatus = 'HELD', paymentStatus = 'PENDING', and holdExpiresAt = now + 10m.
+   Concurrent attempts during this window receive HTTP 409 Conflict.
+4. Permanent Lock on Payment Verification:
+   POST /api/payments/verify verifies Razorpay HMAC SHA256 signature using the
+   backend Key Secret. Upon validation, bookingStatus atomically transitions to
+   'CONFIRMED' and paymentStatus to 'PAID'.
+5. Hold Expiration vs Confirmed Booking:
+   - Expired holds (holdExpiresAt < now) without confirmed payment are released
+     and become available for other users.
+   - Confirmed bookings permanently block the court and interval across all
+     future queries and date navigation.
+6. Conflict Handling (Requirement C.11):
+   If payment verification succeeds for a booking whose hold expired and the
+   slot was claimed by another user, the backend marks the booking as
+   'CONFLICT_REFUND_PENDING' and returns conflict details so safe refund
+   reconciliation can be executed without double-booking the court.
+
+Firestore Security Rules:
+- match /bookings/{bookingId}:
+  - allow read: if request.auth != null;
+  - allow create: if request.auth != null &&
+      request.resource.data.bookingStatus in ['PENDING', 'HELD'] &&
+      request.resource.data.paymentStatus == 'PENDING';
+  - allow update: if request.auth != null &&
+      resource.data.userId == request.auth.uid &&
+      request.resource.data.bookingStatus == 'CANCELLED';
+  - Server Admin SDK has exclusive authority to transition bookings to CONFIRMED/PAID.
+
+--------------------------------------------------------------------------------
+8. AUTOMATED TEST SUITE & VALIDATION RESULTS
+--------------------------------------------------------------------------------
+A. Node.js Backend Integration Test Suite (server/test_backend.js):
+   Result: 33 PASSED, 0 FAILED
+   Tests covered:
+   1.  Server Health Endpoint (GET /)
+   2.  30-minute booking price calculation (30,000 paise / ₹300)
+   3.  1-hour booking price calculation (60,000 paise / ₹600)
+   4.  2-hour consecutive booking price calculation (160,000 paise / ₹1,600)
+   5.  Booking ending at venue closing boundary (10:00 PM - 11:00 PM) allowed
+   6.  Booking extending beyond closing boundary rejected (HTTP 400)
+   7.  Overlapping request inside active 10-minute hold rejected (HTTP 409)
+   8.  Missing payment signature rejected (HTTP 400)
+   9.  Invalid HMAC payment signature rejected (HTTP 400)
+   10. Mismatched Razorpay order ID rejected (HTTP 400)
+   11. Valid signature confirms booking & updates status (HTTP 200)
+   12. Idempotent payment verification handles duplicate calls safely (HTTP 200)
+   13. Partial time overlap with confirmed booking rejected (HTTP 409)
+   14. Concurrency: One concurrent overlapping booking wins, other rejected (409)
+   15. Release hold endpoint frees held interval on cancellation
+   16. Released interval is immediately re-bookable
+   17. Missing webhook signature header rejected (HTTP 400)
+   18. Invalid webhook signature rejected (HTTP 400)
+   19. Valid webhook confirms booking on payment.captured (HTTP 200)
+   20. Idempotent webhook delivery handles duplicate events safely
+   21. Booking cancellation & refund calculation logic
+   22. GET /api/coupons returns configured promotions with eligibility evaluated
+   23. Valid flat coupon (TOLII150) calculates exact 15,000 paise discount
+   24. Percentage coupon (PLAYSPORTS20) calculates 20% discount (16,000 paise)
+   25. Non-existent coupon code rejected (HTTP 400)
+   26. Ineligible booking below minimum required amount rejected (HTTP 400)
+   27. Checkout: Razorpay order created for server-discounted amount (65,000 paise)
+   28. Payment Verification: Booking confirmed with coupon details saved
+   29. Per-user usage limit rejects exhausted coupon reuse (HTTP 400)
+   30. Permanent Slot Blocking: Availability returns confirmed slot as booked
+   31. Overlapping request on confirmed slot rejected (HTTP 409 Conflict)
+   32. Isolation: Different court on same date/time allowed
+   33. Isolation: Different date on same court/time allowed
+
+B. Flutter Static Analysis:
+   Command: flutter analyze
+   Result: No issues found! (ran in 6.3s) - 0 errors, 0 warnings, 0 lints.
+
+C. Flutter Unit & Regression Test Suites:
+   - test/checkout_coupon_slot_test.dart: 6 PASSED, 0 FAILED
+   - test/venue_booking_test.dart: 41 PASSED, 0 FAILED
+
+--------------------------------------------------------------------------------
+9. REMAINING SETUP & MANUAL TESTING INSTRUCTIONS
+--------------------------------------------------------------------------------
+To test on the connected Android device (Pixel 9a):
+1. Ensure the Node backend is running:
+   cd server && npm start
+   (The backend daemon is currently running on port 3000).
+2. Ensure ADB reverse proxy is active:
+   adb -s 56161JEBF02819 reverse tcp:3000 tcp:3000
+3. In the TOLII app on the phone:
+   a. Navigate to any venue and select court, date, and time slot.
+   b. Proceed to Booking Review. Verify the new premium UI layout.
+   c. Tap "Apply Coupon".
+   d. Select "TOLII150" or enter a promo code and tap Apply.
+   e. Verify that the price breakdown updates:
+      - Court Price: ₹800.00
+      - Coupon Discount: -₹150.00
+      - Total Payable: ₹650.00
+      - Bottom Button: "Pay ₹650 via Razorpay"
+   f. Tap "Pay ₹650 via Razorpay". The Razorpay Checkout sheet will open.
+   g. Select Netbanking / UPI (Test Mode) -> Success.
+   h. Observe booking confirmation. Return to slot selection: the booked time
+      slot will now be permanently marked as "Booked" / unavailable.
+================================================================================

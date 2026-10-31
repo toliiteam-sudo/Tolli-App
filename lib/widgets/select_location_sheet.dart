@@ -1,26 +1,9 @@
 import 'package:flutter/material.dart';
 import '../constants/app_assets.dart';
 import '../constants/app_colors.dart';
+import '../models/location_venue_item.dart';
 
-class LocationVenueItem {
-  final String id;
-  final String name;
-  final String address;
-  final double rating;
-  final int reviewsCount;
-  final String distance;
-  final String imageAsset;
-
-  const LocationVenueItem({
-    required this.id,
-    required this.name,
-    required this.address,
-    required this.rating,
-    required this.reviewsCount,
-    required this.distance,
-    required this.imageAsset,
-  });
-}
+export '../models/location_venue_item.dart';
 
 class SelectLocationSheet extends StatefulWidget {
   final String currentSelectedVenue;

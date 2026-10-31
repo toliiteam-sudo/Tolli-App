@@ -6,7 +6,9 @@ import '../constants/app_colors.dart';
 import '../controllers/activities_controller.dart';
 import '../controllers/auth_controller.dart';
 import '../models/activity_model.dart';
+import '../models/booking_model.dart';
 import '../repositories/activity_repository.dart';
+import '../repositories/booking_repository.dart';
 import '../widgets/date_picker_bottom_sheet.dart';
 import '../widgets/select_activity_sheet.dart';
 import '../widgets/time_picker_modal.dart';
@@ -15,7 +17,12 @@ import 'browse_locations_screen.dart';
 import 'select_location_screen.dart';
 
 class CreateActivityScreen extends StatefulWidget {
-  const CreateActivityScreen({super.key});
+  final BookingModel? prefilledBooking;
+
+  const CreateActivityScreen({
+    super.key,
+    this.prefilledBooking,
+  });
 
   @override
   State<CreateActivityScreen> createState() => _CreateActivityScreenState();
@@ -29,7 +36,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
   String _sportIcon = AppAssets.actBoxCricket;
   SportCategory _sportCategory = SportCategory.boxCricket;
 
-  String _venueName = 'Bhavnagar';
+  String _venueName = 'Sports Arena Sidsar';
   late DateTime _selectedDate;
   late String _dateFormatted;
 
@@ -61,7 +68,7 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
 
   // 6. Note & Equipment
   final TextEditingController _noteController = TextEditingController(
-    text: 'Casual box cricket game. No experience needed — just come and play!',
+    text: 'Casual game. No experience needed — just come and play!',
   );
   final TextEditingController _equipmentController = TextEditingController(
     text: 'None',
@@ -75,6 +82,18 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
     super.initState();
     _selectedDate = DateTime.now();
     _dateFormatted = 'Today, ${_selectedDate.day} ${_getMonthName(_selectedDate.month)}';
+
+    if (widget.prefilledBooking != null) {
+      final b = widget.prefilledBooking!;
+      _sportTitle = b.sportName.isNotEmpty ? b.sportName : 'Box Cricket';
+      _venueName = '${b.venueName} (${b.courtName})';
+      _timeFormatted = b.startTime;
+      _durationMinutes = b.durationMinutes;
+      _noteController.text = 'Confirmed venue booking #${b.bookingId}. Looking for players to join!';
+      if (b.bookingDate.isNotEmpty) {
+        _dateFormatted = b.bookingDate;
+      }
+    }
   }
 
   String _getMonthName(int month) {
@@ -216,6 +235,15 @@ class _CreateActivityScreenState extends State<CreateActivityScreen> {
       if (activityId != null) {
         final createdActivity = newActivity.copyWith(id: activityId);
         ActivitiesController().addActivity(createdActivity);
+
+        if (widget.prefilledBooking != null) {
+          await BookingRepository().linkGameToBooking(
+            widget.prefilledBooking!.bookingId,
+            activityId,
+          );
+        }
+
+        if (!mounted) return;
 
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(

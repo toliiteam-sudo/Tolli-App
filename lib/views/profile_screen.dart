@@ -12,6 +12,7 @@ import '../widgets/toli_refresh_indicator.dart';
 import '../utils/app_transitions.dart';
 import 'activity_detail_screen.dart';
 import 'edit_profile_screen.dart';
+import 'my_bookings_screen.dart';
 import 'my_games_screen.dart';
 import 'welcome_screen.dart';
 import '../widgets/profile_fitness_card.dart';
@@ -406,6 +407,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // 5. Fitness Section
                   const ProfileFitnessCard(),
+                  const SizedBox(height: 20),
+
+                  // 5.5. My Venue Bookings Card
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      Navigator.of(context).push(
+                        AppTransitions.slidePageRoute(const MyBookingsScreen()),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.02),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEEF4FF),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.confirmation_number_outlined,
+                              color: AppColors.primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'My Venue Bookings',
+                                  style: AppTypography.titleMedium.copyWith(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'View reservations, slot status & refunds',
+                                  style: AppTypography.caption.copyWith(
+                                    fontSize: 12,
+                                    color: const Color(0xFF64748B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 16,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 20),
 
                   // 6. Upcoming Games (Screenshot 1)

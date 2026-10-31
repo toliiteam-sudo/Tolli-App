@@ -1,0 +1,1323 @@
+================================================================================
+TOLII APPLICATION — COMPREHENSIVE PROJECT AUDIT & AI HANDOFF REPORT
+================================================================================
+Generated for: Handoff to ChatGPT & Senior Engineering Team
+Auditor Role: Senior Flutter Engineer, UI/UX Auditor, QA Engineer & Software Architect
+Date of Audit: October 28, 2026
+Audit Scope: Full-Stack (Flutter Mobile Client, Node.js Server, Firestore, Security, Payments)
+Integrity Guarantee: Evidence-based findings; zero secret exposures; verified test results.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1.  Executive Summary
+2.  Project Location and Environment
+3.  Technology Stack
+4.  Directory Structure
+5.  Complete Screen Inventory (All 32 Screens + Modals & Sheets)
+6.  Navigation Map & Routing Architecture
+7.  UI and Visual Design Audit
+8.  Functional Flow Audit
+9.  Booking and Payment Engine Audit
+10. Backend and Security Audit
+11. Code Quality, Diagnostics, and Test Results
+12. Known Errors, Anti-Patterns, and Incomplete Work
+13. Runtime and Connected Device Status
+14. Prioritized Bug & Defect List (P0 to P3)
+15. Recommended Fix Order & Technical Roadmap
+16. Architectural Questions and Unknowns
+17. Appendix: Important Files and Responsibilities
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+TOLII is a hyper-local sports discovery, activity matchmaking, community messaging,
+and venue slot booking application. The platform connects recreational sports players
+(cricket, badminton, pickleball, football, tennis, etc.) to discover open games,
+host neighborhood matches, book sports venues with flexible 30-minute intervals,
+and synchronize daily fitness metrics via Google Fit / Health Connect.
+
+OVERALL SYSTEM HEALTH:
+----------------------
+- Flutter Client: 🟢 STRONG IMPLEMENTATION (Production-ready UI architecture,
+  32 complete screens, 0 analyzer issues, 87/87 passing unit/widget tests).
+- Backend & APIs: 🟡 FUNCTIONAL WITH CRITICAL SECURITY VULNERABILITIES (Node.js
+  Express server handling multi-tier email OTP, Razorpay order creation, and
+  slot holds; contains payment signature verification bypasses and in-memory state).
+- Cloud Firestore: 🟢 HIGH QUALITY (Comprehensive collection schema and
+  production-grade security rules in firestore.rules).
+- Venue Booking: 🟢 LOGICALLY SOUND (5-section booking UI active; discrete 30-min
+  grid with authoritative price calculation; legacy SnapTimeRuler widget is dead code).
+- Mobile Platforms: 🟡 ANDROID EXCELLENT / IOS DEFICIENT (Android has Health Connect,
+  Google Services, and permissions configured; iOS is missing GoogleService-Info.plist
+  and essential privacy permission strings).
+
+KEY HIGH-PRIORITY FINDINGS:
+---------------------------
+1. [CRITICAL - P0] PAYMENT SIGNATURE BYPASS: In `server/index.js` (line 1059),
+   if `razorpaySignature` is omitted from the request body in `POST /api/payments/verify`,
+   `isValidSignature` evaluates to `true`. This allows fraudulent confirmation of any booking
+   without payment.
+2. [CRITICAL - P0] WEBHOOK SIGNATURE BYPASS: In `server/index.js` (line 1152),
+   if `x-razorpay-signature` is omitted from HTTP headers, signature verification is
+   bypassed entirely, allowing unverified webhook simulation.
+3. [HIGH - P1] SIMULATED PHONE AUTHENTICATION: In `lib/controllers/auth_controller.dart`
+   (lines 282-289), Phone OTP authentication is 100% simulated client-side with a 350ms
+   delay. It does not authenticate with Firebase Auth, which causes all subsequent Firestore
+   operations to fail under Firestore security rules (`request.auth != null`).
+4. [MEDIUM - P2] DEAD TIMELINE CODE: `lib/widgets/snap_time_ruler.dart` (742 lines) is an
+   abandoned horizontal slider concept that is NOT used in the active booking flow
+   (`SelectCourtDateSlotScreen`), which now uses a 3-column discrete slot grid.
+5. [HIGH - P1] MISSING IOS PRIVACY KEYS: `ios/Runner/Info.plist` lacks required keys for
+   Camera (`NSCameraUsageDescription`), Photo Library (`NSPhotoLibraryUsageDescription`),
+   Location (`NSLocationWhenInUseUsageDescription`), and HealthKit permissions.
+   `GoogleService-Info.plist` is missing from `ios/Runner/`.
+
+================================================================================
+2. PROJECT LOCATION AND ENVIRONMENT
+================================================================================
+- Workspace Root:
+  c:\Users\vatsa\Downloads\Tolli-App-email-otp-auth
+- Actual Flutter Project Root (contains pubspec.yaml):
+  c:\Users\vatsa\Downloads\Tolli-App-email-otp-auth\Tolli-App-email-otp-auth
+  [NOTE FOR CHATGPT: Note the nested folder structure! Commands and edits must target
+   the inner directory `Tolli-App-email-otp-auth/Tolli-App-email-otp-auth`]
+
+VERIFIED TOOLING VERSIONS (Observed via CLI runtime diagnostics):
+-----------------------------------------------------------------
+- Flutter Version: 3.47.4 (Channel stable, revision 9584c6713b)
+- Dart SDK Version: 3.13.3 (stable) on windows_x64
+- DevTools Version: 2.60.0
+- Node.js Version: v24.19.0
+- npm Version: 11.17.0
+- Host Operating System: Windows 11 Pro 64-bit (OS Build 26300.9711)
+
+ENVIRONMENT CONFIGURATION FILES:
+--------------------------------
+1. `server/.env.example`:
+   Configured variable keys documented in repository:
+   - PORT
+   - GMAIL_CLIENT_ID
+   - GMAIL_CLIENT_SECRET
+   - GMAIL_REFRESH_TOKEN
+   - SMTP_USER
+   - SMTP_PASS
+   - SENDGRID_API_KEY
+   - BREVO_API_KEY
+   - MAILJET_API_KEY
+   - MAILJET_SECRET_KEY
+   - RESEND_API_KEY
+   - OTP_SECRET
+   - FIREBASE_SERVICE_ACCOUNT
+   - RAZORPAY_KEY_ID
+   - RAZORPAY_KEY_SECRET
+   - RAZORPAY_WEBHOOK_SECRET
+   - FIRESTORE_EMULATOR_HOST
+2. `server/.env`:
+   - Verification Check: `Test-Path server/.env` returned FALSE.
+   - Status: No local `.env` exists in the local server directory.
+   - Production Remote: The backend runs remotely on Render at
+     `https://tolli-app.onrender.com` where environment secrets are injected via dashboard.
+3. `android/app/google-services.json`:
+   - Verification Check: `Test-Path android/app/google-services.json` returned TRUE.
+   - Status: Configured for Android package `com.tolli.app`. Secrets redacted.
+4. `ios/Runner/GoogleService-Info.plist`:
+   - Verification Check: `Test-Path ios/Runner/GoogleService-Info.plist` returned FALSE.
+   - Status: MISSING. iOS Firebase will fail to initialize unless running with default options.
+
+PLATFORM SUPPORT STATUS:
+------------------------
+- Android: 🟢 Active development target. `compileSdk` uses Flutter default; `minSdk = 26`
+  in `android/app/build.gradle.kts`. Health Connect intent filters and permissions declared.
+- iOS: 🟡 Partial. Project scaffolded, but missing `GoogleService-Info.plist` and permission
+  usage descriptions in `ios/Runner/Info.plist`.
+- Desktop (Windows): 🟡 Can run for UI testing, but Razorpay plugin (`razorpay_flutter`)
+  throws platform channel exceptions (handled in code via mock fallback).
+- Web: 🟡 Scaffolded, but Razorpay Flutter plugin does not support web out of the box.
+
+================================================================================
+3. TECHNOLOGY STACK
+================================================================================
+1. Core Frontend:
+   - Flutter 3.47.4 / Dart 3.13.3 (Null-safety enabled throughout).
+   - Target SDK: SDK `^3.11.1` as defined in `pubspec.yaml`.
+2. UI & Design System:
+   - Vanilla Flutter Material 3 widgets with custom themed design tokens.
+   - Typography: Google Fonts (`GoogleFonts.interTextTheme`).
+   - Vector Graphics: `flutter_svg: ^2.0.17`.
+   - Custom animations using native `AnimationController`, `CurvedAnimation`, and `CustomPainter`.
+3. State Management:
+   - Architectural Pattern: Lightweight Controller-Repository-Service architecture.
+   - Controllers: `AuthController`, `ActivitiesController`, `NotificationController`
+     (extending `ChangeNotifier`, listened to via `ListenableBuilder` and `AnimatedBuilder`).
+   - Streams: Real-time Firestore snapshot streams merged with `RxStreamCombine.combineTwo`
+     and `RxStreamCombine.combineThree`.
+4. Navigation & Routing:
+   - Page-based Navigator 1.0 routing with custom transitions (`AppTransitions.slidePageRoute`
+     and `PageRouteBuilder` with `Curves.easeOutCubic`).
+   - Root Bottom Navigation: `CustomBottomNavBar` persistent floating pill over `IndexedStack`.
+5. Backend Server:
+   - Runtime: Node.js (v24.19.0) with Express.js (`server/index.js`).
+   - Server Deployment: Render (`https://tolli-app.onrender.com`).
+   - Server Dependencies: `cors: ^2.8.5`, `dotenv: ^16.4.5`, `express: ^4.19.2`,
+     `firebase-admin: ^12.0.0`, `nodemailer: ^6.9.13`, `razorpay: ^2.9.2`, `resend: ^3.2.0`.
+6. Database & Backend Services:
+   - Cloud Firestore (`cloud_firestore: ^5.6.5`): Primary transactional database.
+   - Firebase Authentication (`firebase_auth: ^5.5.1`): Identity management (Google Sign-In,
+     Custom Token auth for Email OTP).
+   - Firebase Storage (`firebase_storage: ^12.4.4`): Community chat images and avatars.
+   - Google Sign-In (`google_sign_in: ^6.2.2`).
+   - Google Fitness API (`googleapis: ^17.0.0`): OAuth2 step/calorie/distance metrics.
+   - Health Connect (`health: ^13.3.2`): Android Health Connect wrapper.
+   - Payment Gateway: `razorpay_flutter: ^1.3.10` with server-side order generation.
+   - Maps & Geolocation: `flutter_map: ^7.0.2`, `latlong2: ^0.9.1`, `geolocator: ^13.0.2`.
+   - Device Storage: `shared_preferences: ^2.3.5`.
+   - Social Sharing: `share_plus: ^13.3.0`.
+
+================================================================================
+4. DIRECTORY STRUCTURE
+================================================================================
+Tolli-App-email-otp-auth/Tolli-App-email-otp-auth/
+├── analysis_options.yaml           # Flutter lint rules (flutter_lints 6.0.0)
+├── firestore.rules                 # Cloud Firestore security rules (188 lines)
+├── pubspec.yaml                    # Flutter project configuration & dependencies
+├── pubspec.lock                    # Dependency lockfile
+├── EMAIL_OTP_ARCHITECTURE.md       # Architecture reference for email OTP service
+├── FIREBASE_BACKEND_ARCHITECTURE_AND_STATUS.md # Firebase documentation
+├── android/
+│   ├── app/
+│   │   ├── build.gradle.kts        # Android build config (minSdk 26, namespace com.tolli.app)
+│   │   ├── google-services.json    # Android Firebase configuration
+│   │   └── src/main/AndroidManifest.xml # Permissions & Health Connect intent filters
+├── assets/
+│   └── images/                     # 50 PNG/SVG image assets (icons, sports, venues, branding)
+├── lib/
+│   ├── main.dart                   # Application entry point (Firebase.initializeApp)
+│   ├── PROFILE_ACTIVITY_FLOW_DOCS.md # Activity & profile specification documentation
+│   ├── constants/
+│   │   ├── app_assets.dart         # Static asset path constants
+│   │   ├── app_colors.dart         # Color palette tokens (primary #063E9E, backgrounds, accents)
+│   │   └── app_typography.dart     # Inter font style hierarchy
+│   ├── controllers/
+│   │   ├── activities_controller.dart # Activity feed, filters, and quick invites state
+│   │   ├── auth_controller.dart    # Auth state, Google Sign-In, OTP flow, user profiles
+│   │   └── notification_controller.dart # In-app notification state & unread badges
+│   ├── models/
+│   │   ├── activity_model.dart     # ActivityModel, SportCategory, SkillLevel, PlayerModel
+│   │   ├── activity_request_model.dart # Join request data entity
+│   │   ├── auth_model.dart         # Local onboarding form fields & session state
+│   │   ├── booking_model.dart      # BookingModel, BookingStatus enum, CourtModel, VenueSlotModel
+│   │   ├── chat_message_model.dart # ChatMessageModel (text, image, system messages)
+│   │   ├── notification_model.dart # In-app notification entity
+│   │   ├── user_profile_model.dart # UserProfile entity for /users/{uid}
+│   │   └── venue_model.dart        # VenueModel, CourtModel, VenueSlotModel
+│   ├── repositories/
+│   │   ├── activity_repository.dart# Activity CRUD, streams, joins, and invite logic
+│   │   ├── booking_repository.dart # User bookings Firestore streams & game linking
+│   │   ├── community_repository.dart # Community groups, real-time chat, image uploads
+│   │   ├── notification_repository.dart # Notification streams & mark-read triggers
+│   │   ├── user_repository.dart    # User profile Firestore CRUD
+│   │   ├── username_repository.dart# Atomic username handle claiming transactions
+│   │   └── venue_repository.dart   # Venues, courts, composite slots & availability
+│   ├── services/
+│   │   ├── booking_backend_service.dart # HTTP client for /api/bookings and Razorpay
+│   │   ├── firestore_service.dart  # Central singleton for Firestore collection refs
+│   │   ├── google_fit_service.dart # Google Fitness API OAuth2 integration
+│   │   ├── health_service.dart     # Health Connect wrapper for steps/calories/distance
+│   │   ├── otp_service.dart        # BaseOtpProvider & EmailOtpProvider HTTP client
+│   │   └── toli_share_service.dart # Social sharing & deep linking service
+│   ├── utils/
+│   │   ├── app_transitions.dart    # Reusable slide & fade route transitions
+│   │   ├── booking_time_utils.dart # 30-min calculations, time parsing, overlap detection
+│   │   └── username_validator.dart # Handle regex validation & normalization rules
+│   ├── views/                      # 32 Screen files (Detailed in Section 5)
+│   └── widgets/                    # 29 Reusable widgets, cards, dialogs & sheets
+├── server/
+│   ├── index.js                    # Express backend entry point (52KB, 1354 lines)
+│   ├── package.json                # Server npm dependencies
+│   ├── package-lock.json           # Node lockfile
+│   ├── test_backend.js             # Integration test suite for backend booking/payment
+│   ├── .env.example                # Example environment variables
+│   └── scripts/
+│       └── get_gmail_token.js      # CLI utility for generating Gmail OAuth2 refresh tokens
+├── test/
+│   ├── activity_lifecycle_test.dart# Tests for activity creation, hosting & join lifecycle
+│   ├── upcoming_activities_test.dart # Tests for upcoming activities streams & time filtering
+│   ├── username_validator_test.dart# Handle validation unit tests
+│   ├── venue_booking_test.dart     # Comprehensive venue booking, pricing, and ruler tests
+│   ├── venue_ui_and_asset_test.dart# Venue UI widget rendering & asset verification
+│   └── widget_test.dart            # Smoke tests for HomeScreen, nav bar, and filters
+└── tools/
+    └── benchmark_otp.dart          # Benchmarking script for OTP API latency
+
+================================================================================
+5. COMPLETE SCREEN AND NAVIGATION INVENTORY
+================================================================================
+The application contains 32 distinct screen views in `lib/views/`. Each screen has been
+audited through source code inspection and verified against automated widget tests.
+
+--------------------------------------------------------------------------------
+SCREEN 1: SplashScreen
+- File Path: `lib/views/splash_screen.dart` (290 lines)
+- Purpose: Application entry screen; initializes persistent auth and animates branding.
+- Access Route: Set as `home:` in `lib/main.dart`.
+- Main Components: Custom ambient radial gradient painter, floating particle painter,
+  animated glowing aura, and vector `ToliiLogo`.
+- Data Sources: `AuthController.instance.init()`.
+- Interactive Controls: None (auto-navigates after 2400ms).
+- Destinations:
+  - If authenticated & profile complete -> `HomeScreen`.
+  - If authenticated & profile incomplete -> `LocationScreen`.
+  - If unauthenticated -> `WelcomeScreen`.
+- States: Entrance scale animation, pulsing glow aura, background particle motion.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/widget_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 2: WelcomeScreen
+- File Path: `lib/views/welcome_screen.dart` (125 lines)
+- Purpose: First-time onboarding landing screen.
+- Access Route: Navigated from `SplashScreen` when user is not authenticated.
+- Main Components: Centered `ToliiLogo`, bottom curved card (Radius 28), hero image
+  (`AppAssets.greetLogoPng`), headlines, and CTA button.
+- Data Sources: Static assets.
+- Interactive Controls: "Ready. Set. Go" `CustomButton`.
+- Destinations: Pushes `EmailScreen`.
+- States: Static layout.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 3: EmailScreen
+- File Path: `lib/views/email_screen.dart` (599 lines)
+- Purpose: Primary authentication gateway (Email OTP, simulated Phone OTP, Google Sign-In).
+- Access Route: Pushed from `WelcomeScreen` or returned via sign-out.
+- Main Components: Header with step indicator (`AuthStepProgress`), segmented pill toggle
+  (Email vs Phone), text input with validation styling, Google Sign-In button.
+- Data Sources: `AuthController.instance`, `OtpService().warmUp()`.
+- Interactive Controls: Auth mode toggle, email/phone input field, "Send Code" button,
+  Google Sign-In button.
+- Destinations:
+  - On OTP sent -> pushes `OtpScreen`.
+  - On Google Sign-In success -> `HomeScreen` (if complete) or `LocationScreen`.
+- States: Idle, validation error states, loading spinner on button.
+- Implementation Status: Complete for Email & Google; Phone OTP relies on client simulation.
+- Verification: Code inspection & unit tests.
+
+--------------------------------------------------------------------------------
+SCREEN 4: OtpScreen
+- File Path: `lib/views/otp_screen.dart` (377 lines)
+- Purpose: 6-digit OTP entry and verification screen.
+- Access Route: Pushed from `EmailScreen` upon successful OTP dispatch.
+- Main Components: `AuthStepProgress` (Step 2 of 3), 6 individual PIN entry boxes
+  (`OtpPinInput`), 60-second countdown timer, "Resend code" button, "Verify & Continue" button.
+- Data Sources: `AuthController.instance`, `OtpService().verifyOtp()`.
+- Interactive Controls: 6 PIN boxes, back button, "Resend Code" link, "Verify & Continue" button.
+- Destinations:
+  - If profile complete -> replaces route with `HomeScreen`.
+  - If profile incomplete -> replaces route with `LocationScreen`.
+- States: Loading spinner, invalid OTP error text (with remaining attempts counter), resend timer.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 5: LocationScreen
+- File Path: `lib/views/location_screen.dart` (829 lines)
+- Purpose: User onboarding location selection (City / Neighborhood).
+- Access Route: Navigated after OTP verification for new users.
+- Main Components: City selection list, "Use current location" button, map preview button,
+  manual entry bottom sheet.
+- Data Sources: `AuthController.state`, `Geolocator`.
+- Interactive Controls: "Detect my location" button, manual search field, city chips.
+- Destinations: Pushes `InterestsScreen`; can open `LocationMapScreen`.
+- States: GPS detecting, search query filtering, manual selection.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 6: InterestsScreen
+- File Path: `lib/views/interests_screen.dart` (289 lines)
+- Purpose: Onboarding sports & activity interest selection.
+- Access Route: Pushed from `LocationScreen`.
+- Main Components: `AuthStepProgress`, 20 selectable sports pills with emoji/icons,
+  minimum 1 selection validator, "Continue" button.
+- Data Sources: `AuthController.instance`.
+- Interactive Controls: Multi-select sport pills, back button, "Continue" button.
+- Destinations: Pushes `CreateProfileScreen`.
+- States: Dynamic selection highlighting, disabled button when 0 selected.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 7: CreateProfileScreen
+- File Path: `lib/views/create_profile_screen.dart` (856 lines)
+- Purpose: Profile identity setup (First Name, Last Name, Gender, Unique Username).
+- Access Route: Pushed from `InterestsScreen`.
+- Main Components: Profile avatar picker, text inputs, gender dropdown selector,
+  live username validation badge with debounce and availability check.
+- Data Sources: `UsernameRepository`, `UserRepository`, `AuthController`.
+- Interactive Controls: First/last name fields, username field, gender options,
+  "Get Started" button.
+- Destinations: Replaces all routes with `HomeScreen`.
+- States: Checking username availability, handle taken error, form validation.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 8: HomeScreen
+- File Path: `lib/views/home_screen.dart` (1268 lines)
+- Purpose: Main application hub with persistent floating bottom navigation.
+- Access Route: Main screen after login/onboarding.
+- Main Components:
+  - Sticky `ToliHeader` with avatar and notification bell.
+  - Sticky search bar sliver.
+  - Hero banner with action button.
+  - "Upcoming Activities" horizontal carousel (listens to user's real activities).
+  - "Explore Categories" grid (Cricket, Pickleball, Cafe, Badminton).
+  - Google Fit / Health Connect daily fitness card.
+  - "Popular Venues in Bhavnagar" carousel.
+  - Sticky floating `CustomBottomNavBar`.
+- Data Sources: `ActivityRepository.watchUserUpcomingActivities()`, `VenueRepository.getVenues()`,
+  `GoogleFitService`, `HealthService`.
+- Interactive Controls: Tab switches, search bar tap, notification bell tap, venue cards,
+  activity cards, center "+" create button.
+- Destinations: `SearchScreen`, `NotificationsScreen`, `ProfileScreen`, `BrowseLocationsScreen`,
+  `ActivityDetailScreen`, `VenueDetailScreen`, `CreateActivityScreen`.
+- States: Live real-time stream updates, pull-to-refresh (`ToliRefreshIndicator`).
+- Implementation Status: Complete.
+- Verification: Code inspection & automated widget test (`test/widget_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 9: NearbyActivitiesScreen (Explore Tab)
+- File Path: `lib/views/nearby_activities_screen.dart` (218 lines)
+- Purpose: Discovery feed for all sports activities and games in the city.
+- Access Route: Tab 1 (Explore) of `CustomBottomNavBar` on `HomeScreen`.
+- Main Components: `ToliHeader`, `DateSelectorStrip` with calendar picker modal trigger,
+  `FilterChipsBar` (Distance, Time, Sport), list of `ActivityCard` items.
+- Data Sources: `ActivityRepository.watchActivities()`, `ActivitiesController`.
+- Interactive Controls: Date pills, calendar button, filter chips, activity card taps.
+- Destinations: Opens `FiltersBottomSheet`, `ActivityDetailScreen`, `ProfileScreen`.
+- States: Empty state (`ToliEmptyState`), filtered results list.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/widget_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 10: SearchScreen
+- File Path: `lib/views/search_screen.dart` (1048 lines)
+- Purpose: Global search across activities, venues, sports categories, and players.
+- Access Route: Tapping the search bar on `HomeScreen`.
+- Main Components: Search text field with auto-focus and clear button, tab filters
+  ("All", "Activities", "Venues", "Players"), recent search history chips, search result lists.
+- Data Sources: `ActivityRepository`, `VenueRepository`, `ActivitiesController`.
+- Interactive Controls: Search input, filter tabs, result item taps.
+- Destinations: `ActivityDetailScreen`, `VenueDetailScreen`, `SelectLocationScreen`.
+- States: Initial recent searches, typing debounce, empty results state, active results.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 11: BrowseLocationsScreen
+- File Path: `lib/views/browse_locations_screen.dart` (215 lines)
+- Purpose: Browse popular neighborhoods, parks, and playgrounds to play sports.
+- Access Route: Pushed from `HomeScreen` ("Explore places to play").
+- Main Components: App bar with back button, city filter chips, grid of location cards
+  with images, badges, and venue counts.
+- Data Sources: Seed venue locations.
+- Interactive Controls: Location card tap, city selector.
+- Destinations: Pushes `SelectLocationScreen` or filters explore tab.
+- States: Static curated locations list.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 12: SelectLocationScreen
+- File Path: `lib/views/select_location_screen.dart` (412 lines)
+- Purpose: Modal selection screen for choosing venue/location when creating activities.
+- Access Route: Pushed from `CreateActivityScreen` or `SearchScreen`.
+- Main Components: Search box, list of verified partner venues, custom location input tile.
+- Data Sources: `VenueRepository.getVenues()`.
+- Interactive Controls: Search field, venue tile radio selection, "Confirm Location" button.
+- Destinations: Returns selected location/venue name and coordinates to caller.
+- States: Search filtering, selected state highlighting.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 13: LocationMapScreen
+- File Path: `lib/views/location_map_screen.dart` (962 lines)
+- Purpose: Interactive map screen for pin-pointing venue locations and getting directions.
+- Access Route: Pushed from `LocationScreen`, `VenueDetailScreen`, or `BookingDetailScreen`.
+- Main Components: `FlutterMap` with OpenStreetMap tile layer, center marker pin,
+  current location button, venue info card overlay with directions button.
+- Data Sources: `geolocator`, `latlong2`.
+- Interactive Controls: Pan, pinch zoom, current location GPS button, confirm position button.
+- Destinations: Returns coordinates to caller or opens navigation directions.
+- States: GPS fetching, map drag updates.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 14: CreateActivityScreen
+- File Path: `lib/views/create_activity_screen.dart` (1382 lines)
+- Purpose: Form to host and publish a sports game/activity.
+- Access Route: Tapped center "+" button on `CustomBottomNavBar` or pushed from booking screen.
+- Main Components:
+  - Sport category selector (opens `SelectActivitySheet`).
+  - Venue/Location picker (prefilled if created from a confirmed booking).
+  - Date & Time pickers (`DatePickerBottomSheet`, `TimePickerModal`).
+  - Players needed counter (+ / - stepper).
+  - Skill level selector pills (All levels, Beginner, Intermediate, Advanced).
+  - Cost per person counter (Free, ₹60, ₹100, ₹150, or custom).
+  - Who can join selector ("Public" vs "Invite only").
+  - Notes & Equipment text fields.
+  - "Publish Activity" button.
+- Data Sources: `ActivityRepository.createActivity()`, `BookingRepository.linkGameToBooking()`.
+- Interactive Controls: Pickers, counters, text inputs, publish button.
+- Destinations: Replaces route with `ActivityCreatedScreen`.
+- States: Publishing spinner, prefilled booking banner, validation error highlights.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/activity_lifecycle_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 15: EditActivityScreen
+- File Path: `lib/views/edit_activity_screen.dart` (1168 lines)
+- Purpose: Allows the host to edit an existing activity's details.
+- Access Route: Pushed from `ActivityDetailScreen` (when `isHost == true`).
+- Main Components: Editable fields matching `CreateActivityScreen`, save changes button.
+- Data Sources: `ActivityRepository.updateActivity()`.
+- Interactive Controls: Pickers, counters, note inputs, "Save Changes" button.
+- Destinations: Returns updated `ActivityModel` to `ActivityDetailScreen`.
+- States: Loading spinner, field validation.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 16: ActivityCreatedScreen
+- File Path: `lib/views/activity_created_screen.dart` (444 lines)
+- Purpose: Success celebration screen after publishing an activity.
+- Access Route: Replaced route from `CreateActivityScreen`.
+- Main Components: Animated checkmark bounce, confetti illustration, activity summary card,
+  "Share with Friends" button, "View Activity Details" button, "Back to Home" button.
+- Data Sources: Created `ActivityModel`, `ToliShareService`.
+- Interactive Controls: Share button (native share sheet), "View Game" button, "Home" button.
+- Destinations: `ActivityDetailScreen` or `HomeScreen`.
+- States: Entrance bounce and fade animation.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 17: ActivityDetailScreen
+- File Path: `lib/views/activity_detail_screen.dart` (1784 lines)
+- Purpose: Primary detail view for a game/activity. Adapts based on host vs participant status.
+- Access Route: Tapped on any `ActivityCard` across Home, Explore, or Profile.
+- Main Components:
+  - Header with sport icon, status badge, title, and venue location.
+  - Confirmed venue badge with link to venue details (if prefilled from venue booking).
+  - Date, time, and duration info cards.
+  - Player capacity progress bar and avatar stack (`AvatarStack`).
+  - "View all players ->" link.
+  - Host info card with rating and verified badge.
+  - Host action buttons: "Edit Activity", "Delete Activity", "Invite Players" (`InvitePlayersSheet`).
+  - Non-host action buttons: "Join Game", "Request to Join" (if invite-only), "Leave Activity".
+  - Dedicated Activity Group Chat entry button.
+- Data Sources: `ActivityRepository.watchActivityDetail()`, `watchActivityParticipants()`,
+  `watchActivityMembershipStatus()`.
+- Interactive Controls: Join/Leave/Request buttons, Edit/Delete buttons, Share button.
+- Destinations: `EditActivityScreen`, `PlayersScreen`, `CommunityChatScreen`, `JoinedScreen`.
+- States: Loading membership, action in progress, host vs member vs non-member modes.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/activity_lifecycle_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 18: JoinedScreen
+- File Path: `lib/views/joined_screen.dart` (468 lines)
+- Purpose: Confirmation screen when a user successfully joins a game.
+- Access Route: Pushed from `ActivityDetailScreen` on direct join.
+- Main Components: Success illustration, game timing reminder, "Add to Calendar" button,
+  "Open Group Chat" button, "Back to Game" button.
+- Data Sources: `ActivityModel`.
+- Interactive Controls: Group chat button, return button.
+- Destinations: `CommunityChatScreen` or returns to `ActivityDetailScreen`.
+- States: Entrance animation.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 19: PlayersScreen
+- File Path: `lib/views/players_screen.dart` (724 lines)
+- Purpose: Full roster management screen showing host, confirmed players, and pending requests.
+- Access Route: Pushed from `ActivityDetailScreen` ("View all players" or "⚙ Manage").
+- Main Components: Segmented tabs ("Confirmed Players" vs "Pending Requests"), player cards
+  with skill level and role badges, host approval/decline buttons for requests.
+- Data Sources: `ActivityRepository.watchActivityParticipants()`, `watchActivityJoinRequests()`.
+- Interactive Controls: Approve/Decline buttons, remove player button (host only), invite button.
+- Destinations: Can open `InvitePlayersSheet`.
+- States: Empty list state, loading actions.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test.
+
+--------------------------------------------------------------------------------
+SCREEN 20: VenuesLandingScreen (Venues Tab)
+- File Path: `lib/views/venues_landing_screen.dart` (531 lines)
+- Purpose: Browse and discover sports venues and turf arenas.
+- Access Route: Tab 3 (Venues) on `HomeScreen` floating bottom nav bar.
+- Main Components: Search field, horizontal sport filter bar (Cricket, Pickleball, Badminton,
+  Football, Tennis), venue cards with images, star ratings, starting price (₹/hr), and amenities.
+- Data Sources: `VenueRepository.streamVenues()`.
+- Interactive Controls: Search input, sport filter pills, venue card tap.
+- Destinations: Pushes `VenueDetailScreen`.
+- States: Real-time stream updates, empty search state.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/venue_ui_and_asset_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 21: VenueDetailScreen
+- File Path: `lib/views/venue_detail_screen.dart` (561 lines)
+- Purpose: Comprehensive venue details with photo carousel, court list, rules, and booking CTA.
+- Access Route: Tapped on any venue card in Home, Venues tab, or Search.
+- Main Components:
+  - Sliver image carousel with page indicator dots.
+  - Venue name, verified partner badge, address, rating & review count.
+  - "Get Directions" link with map thumbnail (`LocationMapScreen`).
+  - Available sports chips.
+  - Courts list with surface types and capacities.
+  - Amenities & facilities chips (Floodlights, Parking, Changing Rooms, AC).
+  - Operating hours & cancellation policy cards.
+  - Sticky bottom booking bar with starting price and "Check Availability & Book" button.
+- Data Sources: `VenueModel`.
+- Interactive Controls: Photo swipe, map thumbnail tap, "Check Availability & Book" button.
+- Destinations: `SelectCourtDateSlotScreen`, `LocationMapScreen`.
+- States: Image slider page change, scroll transitions.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test (`test/venue_ui_and_asset_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 22: SelectCourtDateSlotScreen
+- File Path: `lib/views/select_court_date_slot_screen.dart` (1091 lines)
+- Purpose: Authoritative venue court, date, duration, and time slot selection screen.
+- Access Route: Pushed from `VenueDetailScreen` via "Check Availability & Book".
+- Main Components (5-Section Layout):
+  - Section A: Compact Date Selector (`DateSelectorStrip`) with calendar picker trigger.
+  - Section B: Court Selection cards (Box Cricket, Pickleball, Badminton, etc.).
+  - Section C: Booking Duration pills (30 min, 1 hour, 1.5 hours, 2 hours, 3 hours).
+  - Section D: Available Start Times (Clean 3-column Grid of 30-min discrete time slots).
+    Shows available slots in dark slate, booked/held slots in disabled grey with clear labels.
+  - Section E: Sticky Booking Summary displaying selected court, time interval, duration,
+    price in Rupees, and "Continue" button.
+- Data Sources: `VenueRepository.streamSlots()`, `evaluateIntervalStatus()`, `createCompositeSlot()`.
+- Interactive Controls: Date pills, court selection cards, duration pills, start time grid chips,
+  "Continue" button.
+- Destinations: Pushes `BookingReviewScreen`.
+- States: Dynamic duration invalidation, closing time boundary warnings, slot held tooltips.
+- Implementation Status: Complete.
+- Verification: Code inspection & extensive automated tests (`test/venue_booking_test.dart`).
+
+--------------------------------------------------------------------------------
+SCREEN 23: BookingReviewScreen
+- File Path: `lib/views/booking_review_screen.dart` (585 lines)
+- Purpose: Checkout review, price breakdown, cancellation policy agreement, and payment trigger.
+- Access Route: Pushed from `SelectCourtDateSlotScreen` upon selecting a valid slot.
+- Main Components:
+  - Venue & Court header card with date, time interval, and sport badge.
+  - Price summary card (Base price, convenience fee, total in ₹).
+  - Cancellation policy highlight card.
+  - User contact details card (Name, Phone, Email).
+  - Sticky bottom checkout bar with "Pay & Confirm" button.
+- Data Sources: `BookingBackendService().preparePayment()`, Razorpay SDK (`Razorpay`).
+- Interactive Controls: "Pay & Confirm" button, back button.
+- Destinations: Replaces route with `BookingStatusScreen`.
+- States: Checkout loading spinner, backend error snackbars, payment gateway launch.
+- Implementation Status: Complete.
+- Verification: Code inspection & automated test.
+
+--------------------------------------------------------------------------------
+SCREEN 24: BookingStatusScreen
+- File Path: `lib/views/booking_status_screen.dart` (424 lines)
+- Purpose: Post-payment status verification (Processing, Success, Pending, Failure).
+- Access Route: Navigated from `BookingReviewScreen` upon Razorpay completion.
+- Main Components:
+  - Status animated icon (Green checkmark, red alert, or rotating processing indicator).
+  - Status title and message.
+  - Confirmed booking details card (Booking ID, venue, court, date, time, amount).
+  - CTA 1: "View in My Bookings".
+  - CTA 2: "Create Game at Venue" (prefills activity creation form).
+- Data Sources: `BookingBackendService().verifyPayment()`.
+- Interactive Controls: "View Bookings" button, "Create Game" button.
+- Destinations: `MyBookingsScreen`, `CreateActivityScreen`.
+- States: Processing verification spinner -> Confirmed success state.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 25: BookingDetailScreen
+- File Path: `lib/views/booking_detail_screen.dart` (537 lines)
+- Purpose: Detailed invoice and management screen for an existing booking.
+- Access Route: Tapped on any booking card in `MyBookingsScreen`.
+- Main Components:
+  - Booking status badge (CONFIRMED, COMPLETED, CANCELLED).
+  - Venue image, court name, address, and directions link (`LocationMapScreen`).
+  - Booking date, time interval, and duration badges.
+  - Payment details (Amount, Razorpay Payment ID, Payment Date).
+  - "Create a Game Here" button (links game to this booking).
+  - "Cancel Booking" destructive button with real-time refund calculation modal.
+- Data Sources: `BookingModel`, `BookingBackendService().cancelBooking()`.
+- Interactive Controls: Directions button, "Create Game" button, "Cancel Booking" button.
+- Destinations: `LocationMapScreen`, `CreateActivityScreen`.
+- States: Active vs cancelled states, cancellation in-progress spinner.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 26: MyBookingsScreen
+- File Path: `lib/views/my_bookings_screen.dart` (388 lines)
+- Purpose: User's booking history and upcoming reservations dashboard.
+- Access Route: Pushed from `ProfileScreen` or `BookingStatusScreen`.
+- Main Components: Tab bar ("All", "Upcoming", "Completed"), list of booking cards with
+  status badges, date, court, and price.
+- Data Sources: `BookingRepository.streamUserBookings()`.
+- Interactive Controls: Tab switches, booking card taps, "Book a Court" empty state button.
+- Destinations: `BookingDetailScreen`, `VenuesLandingScreen`.
+- States: Real-time Firestore stream updates, empty states (`ToliEmptyState.bookings`).
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 27: MyGamesScreen
+- File Path: `lib/views/my_games_screen.dart` (159 lines)
+- Purpose: User's activities dashboard divided by participation status.
+- Access Route: Pushed from `ProfileScreen` ("View all" in Upcoming Games).
+- Main Components: Tab bar ("Upcoming", "Joined", "Hosted"), list of `ActivityCard` items.
+- Data Sources: `ActivitiesController.userActivities`.
+- Interactive Controls: Tab switches, activity card taps.
+- Destinations: `ActivityDetailScreen`, `CreateActivityScreen`.
+- States: Empty tab states (`ToliEmptyState.upcoming`, `joined`, `hosted`).
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 28: CommunityScreen (Messages Tab)
+- File Path: `lib/views/community_screen.dart` (744 lines)
+- Purpose: Sports community hub and active chat group directory.
+- Access Route: Tab 4 (Messages) on `CustomBottomNavBar`.
+- Main Components: `ToliHeader`, search bar, "My Communities" active list, "Discover Communities"
+  catalog (Box Cricket, Weekend Cyclists, Pickleball, Football, Badminton), "Join Group" modal.
+- Data Sources: `CommunityRepository`, `/users/{uid}/joined_communities`.
+- Interactive Controls: Search field, community tile taps, "Join Group" confirmation modal.
+- Destinations: Pushes `CommunityChatScreen`.
+- States: Subscribed vs discover communities, search filtering.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 29: CommunityChatScreen
+- File Path: `lib/views/community_chat_screen.dart` (1157 lines)
+- Purpose: Live real-time group chat for community sports clubs or specific game activities.
+- Access Route: Tapped on any community tile in `CommunityScreen` or game chat button.
+- Main Components:
+  - App bar with group avatar, title, member count, and options menu.
+  - Live message list with sender avatars, timestamps, and message bubbles.
+  - Image messages with full-screen viewer (`InteractiveViewer`).
+  - System event badges ("User joined the group").
+  - Message input bar with camera/gallery attachment popup menu (`ImagePicker`).
+  - Auto-scroll to latest message on receive.
+- Data Sources: `CommunityRepository.watchCommunityMessages()`, Firebase Storage.
+- Interactive Controls: Text input, send button, attachment button, image taps, share sheet.
+- Destinations: Fullscreen image viewer, share sheet.
+- States: Uploading image progress indicator, empty chat state.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 30: NotificationsScreen
+- File Path: `lib/views/notifications_screen.dart` (543 lines)
+- Purpose: User notification inbox (Join requests, game updates, booking reminders).
+- Access Route: Tapped the bell icon in `ToliHeader` on Home or Explore.
+- Main Components:
+  - App bar with "Mark all as read" button.
+  - Filter tabs ("All", "Requests", "Activities").
+  - Notification items with distinct icons (clock, calendar, checkmark).
+  - Inline "Accept" and "Decline" buttons for host join requests.
+- Data Sources: `NotificationController.instance`, `ActivityRepository.respondToJoinRequest()`.
+- Interactive Controls: Inline Accept/Decline buttons, notification item taps, "Mark all read".
+- Destinations: `ActivityDetailScreen`.
+- States: Unread dot indicators, empty state (`ToliEmptyState`).
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 31: ProfileScreen
+- File Path: `lib/views/profile_screen.dart` (847 lines)
+- Purpose: User profile identity, fitness metrics, stats, and settings dashboard.
+- Access Route: Tapped user avatar in `ToliHeader` on Home or Explore.
+- Main Components:
+  - User identity card: Avatar, full name, username handle (`@handle`), location.
+  - Top-right settings gear button -> opens `EditProfileScreen`.
+  - Stats row: Matches Played, Games Won, Player Rating.
+  - "MY SPORTS" interest pills.
+  - "Active Level" gauge with flame icons and dynamic progress bar.
+  - Health & Fitness card: Google Fit / Health Connect integration card (`ProfileFitnessCard`).
+  - "My Bookings" shortcut card (opens `MyBookingsScreen`).
+  - "Upcoming Games" horizontal carousel with "View all" link (opens `MyGamesScreen`).
+  - Recent activity history match cards.
+  - Log Out button with confirmation modal (`ToliConfirmationDialog`).
+- Data Sources: `AuthController.state`, `ActivitiesController.userActivities`, `GoogleFitService`.
+- Interactive Controls: Settings button, sport pills, fitness connect, bookings link, logout.
+- Destinations: `EditProfileScreen`, `MyBookingsScreen`, `MyGamesScreen`, `ActivityDetailScreen`,
+  `WelcomeScreen` (on logout).
+- States: Profile image local vs network URL, fitness syncing state.
+- Implementation Status: Complete.
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+SCREEN 32: EditProfileScreen
+- File Path: `lib/views/edit_profile_screen.dart` (849 lines)
+- Purpose: Update user profile details, contact information, gender, and sports interests.
+- Access Route: Tapped settings gear button on `ProfileScreen`.
+- Main Components:
+  - Avatar image picker with "Change Profile Picture" link.
+  - First Name & Last Name inputs.
+  - Contact Details card (Email, Phone number - uneditable/read-only).
+  - About card: Gender dropdown selector (`Male`, `Female`, `Other`), Location input.
+  - Sports interests tags with "Add Sports" bottom sheet.
+  - "Delete Account" button with destructive warning dialog.
+  - Sticky "Save" button.
+- Data Sources: `AuthController.instance.saveProfile()`, `ImagePicker`.
+- Interactive Controls: Image picker, text inputs, gender dropdown, interest chips, Save button.
+- Destinations: Returns updated profile map to `ProfileScreen`.
+- States: Saving state, validation highlights.
+- Implementation Status: Partially Complete (Account deletion is currently simulated).
+- Verification: Code inspection.
+
+--------------------------------------------------------------------------------
+MAJOR REUSABLE MODALS AND BOTTOM SHEETS (in `lib/widgets/`):
+--------------------------------------------------------------------------------
+1. `DatePickerBottomSheet` (`lib/widgets/date_picker_bottom_sheet.dart`): Calendar date picker.
+2. `FiltersBottomSheet` (`lib/widgets/filters_bottom_sheet.dart`): Explore filters (activity,
+   time of day, distance, skill level, price).
+3. `InvitePlayersSheet` (`lib/widgets/invite_players_sheet.dart`): Host quick-invites with toggle state.
+4. `LocationPopupSheet` (`lib/widgets/location_popup_sheet.dart`): City selection popup.
+5. `RequestSentSheet` (`lib/widgets/request_sent_sheet.dart`): Join request confirmation modal.
+6. `SelectActivitySheet` (`lib/widgets/select_activity_sheet.dart`): Grid of 20 sport categories.
+7. `SelectLocationSheet` (`lib/widgets/select_location_sheet.dart`): Quick venue selector sheet.
+8. `SelectSkillLevelSheet` (`lib/widgets/select_skill_level_sheet.dart`): Skill level selector.
+9. `TimePickerModal` (`lib/widgets/time_picker_modal.dart`): Wheel/stepper time picker.
+10. `ToliConfirmationDialog` (`lib/widgets/toli_confirmation_dialog.dart`): Generic modal dialog.
+
+================================================================================
+6. NAVIGATION MAP & ROUTING ARCHITECTURE
+================================================================================
+The app utilizes a centralized navigation flow with consistent page transitions:
+
+```
+                          [App Launch: main.dart]
+                                     │
+                                     ▼
+                             [SplashScreen]
+                                     │
+                 ┌───────────────────┴───────────────────┐
+                 │                                       │
+     (Unauthenticated)                       (Authenticated)
+                 │                                       │
+                 ▼                                       ▼
+          [WelcomeScreen]                    (isProfileComplete?)
+                 │                               ┌───────┴───────┐
+                 ▼                               │               │
+           [EmailScreen]                      (False)         (True)
+                 │                               │               │
+                 ▼                               ▼               ▼
+            [OtpScreen] ────────────────► [LocationScreen]  [HomeScreen]
+                                                 │               ▲
+                                                 ▼               │
+                                         [InterestsScreen]       │
+                                                 │               │
+                                                 ▼               │
+                                       [CreateProfileScreen] ────┘
+```
+
+HOME SCREEN TABS & CONNECTED SCREENS:
+------------------------------------
+```
+[HomeScreen] (IndexedStack + CustomBottomNavBar)
+│
+├── Tab 0: Home Feed
+│   ├── Search Bar ──────────────────────────► [SearchScreen]
+│   ├── Header Avatar ───────────────────────► [ProfileScreen]
+│   │                                          ├── Settings Gear ────► [EditProfileScreen]
+│   │                                          ├── "My Bookings" ────► [MyBookingsScreen]
+│   │                                          │                       └── Tap Item ──► [BookingDetailScreen]
+│   │                                          └── "Upcoming Games" ─► [MyGamesScreen]
+│   ├── Notification Bell ───────────────────► [NotificationsScreen]
+│   ├── "Explore Places" Card ───────────────► [BrowseLocationsScreen]
+│   ├── Upcoming Activity Card ──────────────► [ActivityDetailScreen]
+│   │                                          ├── "Edit Activity" ──► [EditActivityScreen]
+│   │                                          ├── "Manage Players" ─► [PlayersScreen]
+│   │                                          ├── "Join Game" ──────► [JoinedScreen]
+│   │                                          └── "Group Chat" ─────► [CommunityChatScreen]
+│   └── Venue Card ──────────────────────────► [VenueDetailScreen]
+│                                              ├── Map Thumbnail ────► [LocationMapScreen]
+│                                              └── "Check Avail." ───► [SelectCourtDateSlotScreen]
+│                                                                      └── "Continue" ──► [BookingReviewScreen]
+│                                                                                         └── "Pay" ──► [BookingStatusScreen]
+│
+├── Tab 1: Explore (NearbyActivitiesScreen)
+│   ├── Filter Icon ─────────────────────────► [FiltersBottomSheet]
+│   ├── Calendar Icon ───────────────────────► [DatePickerBottomSheet]
+│   └── Activity Card ───────────────────────► [ActivityDetailScreen]
+│
+├── Tab 2: Center "+" Action Button ─────────► [CreateActivityScreen]
+│                                              ├── Pick Sport ───────► [SelectActivitySheet]
+│                                              ├── Pick Location ────► [SelectLocationScreen]
+│                                              └── "Publish" ────────► [ActivityCreatedScreen]
+│                                                                      ├── "View Game" ──► [ActivityDetailScreen]
+│                                                                      └── "Home" ───────► [HomeScreen]
+│
+├── Tab 3: Venues (VenuesLandingScreen)
+│   └── Venue Card ──────────────────────────► [VenueDetailScreen]
+│
+└── Tab 4: Messages (CommunityScreen)
+    ├── Search Communities
+    ├── Discover Community ──────────────────► [Join Community Dialog]
+    └── Active Community Tile ───────────────► [CommunityChatScreen]
+```
+
+================================================================================
+7. UI AND VISUAL DESIGN AUDIT
+================================================================================
+The app exhibits a refined, bespoke design system with custom tokens defined in
+`lib/constants/`. However, source code inspection reveals several concrete visual
+and layout defects that require attention.
+
+DESIGN SYSTEM TOKENS:
+---------------------
+- Primary Brand Color: `Color(0xFF063E9E)` (Deep Royal Blue).
+- Dark Variant: `Color(0xFF042B6E)`.
+- Soft Background Accent: `Color(0xFFE8EFFC)`.
+- Scaffolds & Surfaces: `Color(0xFFF8FAFC)` / Pure White `Color(0xFFFFFFFF)`.
+- Error Accent: `Color(0xFFDC2626)`.
+- Success Accent: `Color(0xFF10B981)`.
+- Typography: Inter font family across all weights (w400, w500, w600, w700, w800).
+
+FINDINGS & DEFECTS TABLE:
+-------------------------
+1. [SEVERITY: MEDIUM] Floating Bottom Navigation Bar Overlap
+   - File: `lib/widgets/custom_bottom_nav_bar.dart` (lines 22-25) & `lib/views/home_screen.dart`
+   - Problem: `CustomBottomNavBar` floats inside a `SafeArea` with height 64px + 12px margin.
+     In screens with vertical lists (`ProfileScreen`, `VenuesLandingScreen`), content at the
+     bottom of the scroll view can be partially obscured by the floating navigation bar unless
+     explicit bottom scroll padding (e.g. `SizedBox(height: 100)`) is added to all lists.
+   - Recommended Correction: Standardize `padding: EdgeInsets.only(bottom: 100)` across all
+     scrollable tab slivers and list views.
+   - Observation: Code inspection & layout calculation.
+
+2. [SEVERITY: LOW] WCAG Color Contrast on Tertiary Subtext
+   - File: `lib/constants/app_colors.dart` (line 28) & `lib/constants/app_typography.dart` (line 76)
+   - Problem: `AppColors.textTertiary` is `Color(0xFF9CA3AF)`. When rendered at font size 12sp
+     against a white or light grey (`0xFFF8FAFC`) background, the contrast ratio is ~2.9:1,
+     which fails WCAG AA standards (minimum 4.5:1 for small text).
+   - Recommended Correction: Darken `textTertiary` to `Color(0xFF6B7280)` for small body text.
+   - Observation: Code inspection.
+
+3. [SEVERITY: HIGH] Missing iOS Privacy Permission Strings
+   - File: `ios/Runner/Info.plist` (lines 1-70)
+   - Problem: The app imports `image_picker`, `geolocator`, and `health`. However, `Info.plist`
+     does not contain:
+     - `NSLocationWhenInUseUsageDescription`
+     - `NSCameraUsageDescription`
+     - `NSPhotoLibraryUsageDescription`
+     - `NSHealthShareUsageDescription` / `NSHealthUpdateUsageDescription`
+     Running on an iOS device will cause immediate app crash upon requesting any of these features.
+   - Recommended Correction: Add the required keys with descriptive user-facing rationale strings.
+   - Observation: Code inspection of `Info.plist`.
+
+4. [SEVERITY: LOW] Dead Code: SnapTimeRuler Widget
+   - File: `lib/widgets/snap_time_ruler.dart` (742 lines)
+   - Problem: The horizontal time ruler widget is completely unreferenced by any screen in
+     `lib/views/`. It was replaced in `SelectCourtDateSlotScreen` by the 3-column discrete grid.
+     Keeping 742 lines of unused complex painting code increases maintenance overhead.
+   - Recommended Correction: If the ruler concept is permanently superseded by the 3-column grid,
+     archive or delete `snap_time_ruler.dart` and remove its tests from `test/venue_booking_test.dart`.
+   - Observation: Code inspection & grep search.
+
+5. [SEVERITY: MEDIUM] Simulated Account Deletion in EditProfileScreen
+   - File: `lib/views/edit_profile_screen.dart` (lines 145-164)
+   - Problem: When the user confirms "Delete Account", the callback simply displays a SnackBar:
+     `'Account deletion request submitted.'` No backend request or Firebase deletion is invoked.
+   - Recommended Correction: Connect account deletion to a secure backend endpoint or
+     `FirebaseAuth.instance.currentUser.delete()` with re-authentication.
+   - Observation: Code inspection.
+
+================================================================================
+8. FUNCTIONAL FLOW AUDIT
+================================================================================
+Detailed walkthrough of core user workflows across the codebase:
+
+1. REGISTRATION & LOGIN FLOW:
+   - Starting Screen: `WelcomeScreen` -> `EmailScreen`.
+   - Actions: User enters email address and taps "Send Code".
+   - State Changes: `_authController.setAuthMode('email')`, `_state.isLoading = true`.
+   - Backend Call: `POST /api/request-otp` on `https://tolli-app.onrender.com`.
+   - Backend Logic: Validates RFC email regex; checks 60-second cooldown in `otpStore`;
+     generates 6-digit random number; stores HMAC-SHA256 hash in memory (5-minute expiry);
+     dispatches email via Gmail API OAuth2 (fallback to Brevo/SendGrid/Mailjet/Resend).
+   - Client Transition: On success, pushes `OtpScreen`.
+   - Verification: User enters 6 digits. `POST /api/verify-otp`.
+   - Token Minting: Backend verifies hash; mints Firebase Custom Token via Firebase Admin SDK.
+   - Client Auth: `FirebaseAuth.instance.signInWithCustomToken(firebaseToken)`.
+   - Onboarding Check: If `isProfileComplete == true` -> `HomeScreen`; else -> `LocationScreen`.
+   - Status: 🟢 VERIFIED WORKING for Email OTP & Google Sign-In; 🔴 BROKEN/SIMULATED for Phone OTP.
+
+2. ACTIVITY CREATION FLOW:
+   - Starting Screen: `HomeScreen` (tap "+") or `BookingStatusScreen` ("Create Game at Venue").
+   - Actions: User selects sport category, date, start time, duration, player count, skill level,
+     cost per person, and privacy ("Public" vs "Invite only").
+   - State Changes: Validates form inputs in `CreateActivityScreen`.
+   - Database Write: `ActivityRepository().createActivity()` writes a new document to
+     `/activities/{activityId}` with `hostId = currentUser.uid`, `participantIds = [hostUid]`,
+     `status = 'scheduled'`, and server timestamps. If prefilled from a venue booking,
+     `linkGameToBooking()` updates the booking with `createdGameId`.
+   - Success Condition: Pushes `ActivityCreatedScreen` with confetti/share CTA, then `HomeScreen`.
+   - Status: 🟢 VERIFIED WORKING (Covered by `test/activity_lifecycle_test.dart`).
+
+3. JOINING & LEAVING ACTIVITY FLOW:
+   - Starting Screen: `ActivityDetailScreen`.
+   - Direct Join (Public): User taps "Join Game".
+     - Repository Call: `ActivityRepository().joinActivityDirectly()`.
+     - Database Action: Atomic Firestore update adds `uid` to `participantIds`, increments
+       `joinedPlayers`, and creates document in `/activities/{id}/participants/{uid}`.
+     - Result: Navigates to `JoinedScreen`.
+   - Request to Join (Invite Only): User taps "Request to Join".
+     - Repository Call: `ActivityRepository().requestToJoinActivity()`.
+     - Database Action: Creates document in `/activities/{id}/requests/{uid}` with
+       `status = 'PENDING'` and writes an in-app notification to host's `/notifications`.
+     - Host Action: Host reviews request in `PlayersScreen` or `NotificationsScreen` and taps
+       "Accept" or "Decline". On accept, player is moved to `/participants`.
+   - Leaving Activity: Confirmed player taps "Leave Activity".
+     - Confirmation Dialog: `_showLeaveConfirmationModal()`.
+     - Database Action: Atomic transaction removes `uid` from `participantIds`, decrements
+       `joinedPlayers`, and deletes document from `/participants/{uid}`.
+   - Status: 🟢 VERIFIED WORKING (Covered by `test/activity_lifecycle_test.dart`).
+
+4. UPCOMING ACTIVITIES FILTERING:
+   - Screen: `HomeScreen` & `MyGamesScreen`.
+   - Logic: `ActivityRepository.watchUserUpcomingActivities(uid)` queries both:
+     1. Activities where `hostId == uid`.
+     2. Activities where `participantIds` array-contains `uid`.
+   - Streams merged via `RxStreamCombine.combineTwo`.
+   - In-Memory Filter: Excludes activities where `status == 'cancelled'` or `endTimestamp <= now`.
+     Sorts ascending by `date`.
+   - Status: 🟢 VERIFIED WORKING (Covered by `test/upcoming_activities_test.dart`).
+
+5. COMMUNITY & REAL-TIME CHAT:
+   - Screen: `CommunityScreen` -> `CommunityChatScreen`.
+   - Stream: `CommunityRepository().watchCommunityMessages()` subscribes to
+     `/communities/{communityId}/messages` ordered by `createdAt` ascending.
+   - Sending Text: `sendCommunityMessage()` writes message document.
+   - Sending Image: `uploadChatImage()` uploads file to Firebase Storage under
+     `communities/{id}/images/` and writes image message with download URL.
+   - Status: 🟢 SUPPORTED BY CODE INSPECTION.
+
+================================================================================
+9. BOOKING AND PAYMENT ENGINE AUDIT
+================================================================================
+The booking system is the most critical commercial component of the application.
+An extensive audit of all booking models, services, screens, and tests was conducted:
+
+1. ACTIVE BOOKING UI IN USE:
+   - The active screen used for venue booking is `SelectCourtDateSlotScreen`
+     (`lib/views/select_court_date_slot_screen.dart`).
+   - It implements a modern 5-section layout:
+     A. Date Selector Strip (`DateSelectorStrip` with 14-day rolling selector).
+     B. Court Selection cards with surface type and capacity.
+     C. Booking Duration pills (30 min, 1 hour, 1.5 hours, 2 hours, 3 hours).
+     D. Available Start Times Grid (clean 3-column discrete grid of 30-minute intervals).
+     E. Sticky Bottom Summary ("Continue" button with price and interval).
+
+2. REMAINING OLDER / DUPLICATE WIDGETS:
+   - `lib/widgets/snap_time_ruler.dart` (742 lines) remains in the project. It contains an
+     elaborate horizontal sliding timeline with day/night theming.
+   - VERIFIED FACT: It is NOT used in `SelectCourtDateSlotScreen`. It is only imported in
+     `test/venue_booking_test.dart`.
+
+3. START TIME GENERATION & INTERVALS:
+   - Generated by `BookingTimeUtils.generateStartTimes()`.
+   - Increments: Exactly 30-minute intervals (e.g. 06:00 AM, 06:30 AM, 07:00 AM ...).
+   - Bounded by venue operating hours: Slots start at `openMinutes` and terminate at
+     `closeMinutes - minDurationMinutes`.
+
+4. DURATION & AVAILABILITY LOGIC:
+   - When the user selects a duration (e.g. 90 minutes), every 30-minute start time in the grid
+     is evaluated across its entire interval: `[startTime, startTime + duration]`.
+   - Evaluation Function: `VenueRepository.evaluateIntervalStatus()`.
+   - Rules:
+     - If `startTime + duration > closeMinutes` -> status is `EXCEEDS_CLOSING`.
+     - If interval overlaps any confirmed booking -> status is `BOOKED`.
+     - If interval overlaps any active hold (less than 10 mins old) -> status is `HELD`.
+     - If interval is completely clear -> status is `AVAILABLE`.
+   - Duration Change Handling: If the user changes duration while a slot was selected,
+     `_revalidateSelectedStartTime()` immediately re-evaluates. If the slot is no longer valid,
+     it is cleared automatically.
+
+5. PRICE CALCULATIONS:
+   - Pricing Formula: Authoritative integer paise calculation:
+     `pricePaise = ((court.hourlyRatePaise * durationMinutes) / 60.0).round()`
+   - Example (Pickleball at ₹600 / 60,000 paise per hour):
+     - 30 minutes = 30,000 paise (₹300).
+     - 60 minutes = 60,000 paise (₹600).
+     - 90 minutes = 90,000 paise (₹900).
+     - 120 minutes = 120,000 paise (₹1,200).
+   - Display Consistency: The price displayed on `SelectCourtDateSlotScreen` matches the
+     amount in `BookingReviewScreen` and matches the amount calculated by the backend in
+     `server/index.js` (lines 950-955).
+
+6. SERVER-SIDE HOLD & VALIDATION:
+   - Client calls `POST /api/bookings/prepare-payment`.
+   - Server re-validates:
+     - Required identifiers (`userId`, `venueId`, `courtId`).
+     - Minimum 30 minutes duration.
+     - Start time >= opening time.
+     - End time <= closing time.
+     - Full interval overlap check against candidate bookings in memory and Firestore.
+   - Provisional Hold: Placed with `bookingStatus = 'HELD'`, `holdExpiresAt = now + 10 mins`.
+   - Razorpay Order: Server calls Razorpay API to generate `razorpayOrderId`.
+
+7. PAYMENT CONFIRMATION & WEBHOOKS:
+   - On successful payment, Razorpay SDK invokes `_handlePaymentSuccess()`.
+   - `BookingStatusScreen` calls `POST /api/payments/verify`.
+   - Backend updates booking status to `CONFIRMED` and payment status to `CAPTURED`.
+   - Webhook: `POST /api/webhooks/razorpay` listens to `payment.captured` and `order.paid`
+     with atomic deduplication via Firestore `/processed_webhooks/{eventId}`.
+
+8. CRITICAL SECURITY DEFECTS IN PAYMENT:
+   - DEFECT 1: In `server/index.js` line 1059:
+     ```javascript
+     if (razorpaySignature) {
+       // verification ...
+     } else {
+       isValidSignature = true; // <--- CRITICAL BYPASS!
+     }
+     ```
+     If an attacker posts to `/api/payments/verify` with any `bookingId` and omits
+     `razorpaySignature`, the server marks the booking as confirmed without payment!
+   - DEFECT 2: In `server/index.js` line 1152:
+     Webhook signature check only executes `if (signature)`. Missing signature header
+     does not return 400, allowing unsigned spoofed webhook calls.
+
+================================================================================
+10. BACKEND AND SECURITY AUDIT
+================================================================================
+- Runtime: Node.js (v24.19.0) with Express framework.
+- Main File: `server/index.js` (1354 lines).
+- Server Health Check: `GET /` -> `{ status: 'online', service: 'tolii-backend' }`.
+
+API ENDPOINT INVENTORY:
+-----------------------
+1. `GET /`
+   - Purpose: Server health check & pre-warm ping.
+   - Auth Required: None.
+2. `GET /api/test-transports`
+   - Purpose: Diagnostic endpoint to test email provider connectivity.
+   - Auth Required: None.
+3. `POST /api/request-otp`
+   - Parameters: `{ email }`.
+   - Validation: Regex check, 60s cooldown per email.
+   - Output: `{ success: true, message: 'OTP sent...' }`.
+4. `POST /api/verify-otp`
+   - Parameters: `{ email, otp }`.
+   - Validation: HMAC-SHA256 hash match, 5-min TTL, max 5 attempts.
+   - Output: `{ success: true, firebaseToken, uid }`.
+5. `POST /api/bookings/prepare-payment`
+   - Parameters: `{ userId, venueId, courtId, slotId, bookingDate, startTime, durationMinutes }`.
+   - Validation: Operating hours, 30m minimum, interval collisions, hold expiry.
+   - Output: `{ success: true, bookingId, razorpayOrderId, amountPaise, keyId, holdExpiresAt }`.
+6. `POST /api/payments/verify`
+   - Parameters: `{ bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature }`.
+   - Vulnerability: Allows missing signature!
+   - Output: `{ success: true, message, booking }`.
+7. `POST /api/bookings/:bookingId/release-hold`
+   - Parameters: URL param `bookingId`.
+   - Action: Releases hold if status is `HELD`.
+8. `POST /api/webhooks/razorpay`
+   - Parameters: Raw body webhook payload.
+   - Action: Deduplicates event ID, updates Firestore booking record.
+9. `POST /api/bookings/:bookingId/cancel`
+   - Parameters: URL param `bookingId`, body `{ userId }`.
+   - Action: Calculates refund percentage based on cancellation window; calls Razorpay refund API.
+
+SECURITY VULNERABILITIES & CODE SMELLS:
+--------------------------------------
+1. [CRITICAL] Payment Signature Bypass in `/api/payments/verify` (line 1059).
+2. [CRITICAL] Webhook Missing Signature Bypass in `/api/webhooks/razorpay` (line 1152).
+3. [HIGH] Fallback hardcoded credentials in `server/index.js`:
+   - `RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_TOLII_VENUE_KEY'`
+   - `RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'tolii_razorpay_secret_key_2026'`
+   - `RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'tolii_webhook_secret_2026'`
+   - `OTP_SECRET = process.env.OTP_SECRET || 'tolii_secure_secret_salt_2026'`
+   If environment variables fail to load on Render, the server silently falls back to these
+   well-known strings instead of crashing or throwing configuration errors.
+4. [MEDIUM] Lack of Global Rate Limiting: No `express-rate-limit` package installed. Endpoints
+   like `/api/bookings/prepare-payment` and `/api/verify-otp` could be spammed.
+5. [MEDIUM] In-Memory State Loss: `otpStore` and `inMemoryBookingsStore` use JavaScript `Map`.
+   When Render spins down or restarts the free web service, all unexpired OTPs and active holds
+   are wiped.
+
+================================================================================
+11. CODE QUALITY, DIAGNOSTICS, AND TEST RESULTS
+================================================================================
+All diagnostics were executed directly in the project workspace:
+
+1. FLUTTER ANALYZE:
+   - Command: `flutter analyze`
+   - Directory: `Tolli-App-email-otp-auth/Tolli-App-email-otp-auth`
+   - Output:
+     ```
+     Analyzing Tolli-App-email-otp-auth...
+     No issues found! (ran in 81.1s)
+     ```
+   - Result: 🟢 0 Errors, 0 Warnings, 0 Lints.
+
+2. FLUTTER TEST:
+   - Command: `flutter test`
+   - Directory: `Tolli-App-email-otp-auth/Tolli-App-email-otp-auth`
+   - Passing Test Count: 87 passed, 0 failed.
+   - Test Suites Tested:
+     - `test/widget_test.dart` (Home, floating nav bar, filters bottom sheet)
+     - `test/username_validator_test.dart` (Handle validation & normalization)
+     - `test/upcoming_activities_test.dart` (Upcoming games filtering logic)
+     - `test/activity_lifecycle_test.dart` (Creation, hosting, join requests)
+     - `test/venue_ui_and_asset_test.dart` (Venue card UI rendering & asset paths)
+     - `test/venue_booking_test.dart` (30-min slots, duration changes, pricing, ruler tests)
+   - Result: 🟢 100% Passing.
+
+3. NODE.JS BACKEND SYNTAX:
+   - Command: `node --check index.js`
+   - Directory: `Tolli-App-email-otp-auth/Tolli-App-email-otp-auth/server`
+   - Output: Clean exit (code 0).
+   - Result: 🟢 Syntax valid.
+
+4. LOCAL SERVER RUNTIME STATUS:
+   - Command: `Test-NetConnection -ComputerName localhost -Port 3000`
+   - Output: `TcpTestSucceeded: False`.
+   - Result: Local Node backend is NOT running on port 3000. (The Flutter client defaults
+     to the remote Render URL `https://tolli-app.onrender.com`).
+
+================================================================================
+12. KNOWN ERRORS, ANTI-PATTERNS, AND INCOMPLETE WORK
+================================================================================
+| # | Severity | File & Location | Description & Impact | Recommended Next Step |
+|---|----------|-----------------|----------------------|-----------------------|
+| 1 | CRITICAL | `server/index.js:1059` | Payment verify allows empty signature (`isValidSignature = true`). Anyone can spoof payments. | Require `razorpaySignature` and reject with 400 if missing or invalid. |
+| 2 | CRITICAL | `server/index.js:1152` | Webhook verification bypassed if `x-razorpay-signature` header omitted. | Check header presence and reject with 400 if missing. |
+| 3 | HIGH | `lib/controllers/auth_controller.dart:283` | Phone OTP authentication is 100% simulated with 350ms delay. No Firebase session created. | Integrate real phone SMS gateway (e.g. Firebase Phone Auth or AiSensy/Twilio). |
+| 4 | HIGH | `ios/Runner/Info.plist` | Missing Camera, Photo, Location, and Health permission descriptions. App crashes on iOS. | Add permission keys to `Info.plist`. |
+| 5 | HIGH | `ios/Runner/` | Missing `GoogleService-Info.plist`. iOS Firebase will fail to initialize. | Add iOS Firebase configuration file. |
+| 6 | HIGH | `server/index.js:11-13` | Hardcoded fallback keys for Razorpay & OTP secret in source code. | Throw error on startup if environment variables are missing in production. |
+| 7 | MEDIUM | `lib/views/edit_profile_screen.dart:154` | "Delete Account" is simulated with a SnackBar. Does not delete user data. | Implement real account deletion endpoint & Firebase Auth deletion. |
+| 8 | MEDIUM | `lib/widgets/snap_time_ruler.dart` | 742 lines of dead code. Replaced in active booking UI by 3-column discrete grid. | Archive or remove unused widget to clean up codebase. |
+| 9 | MEDIUM | `server/index.js:508,760` | In-memory `Map` stores for OTPs and holds reset on server reboot. | Back active holds and OTP records in Firestore collections. |
+| 10| LOW | `lib/services/google_fit_service.dart:25` | Google OAuth Client ID hardcoded in Dart source. | Move client IDs to compile-time environment configuration (`--dart-define`). |
+| 11| LOW | `lib/constants/app_colors.dart:28` | Low contrast ratio on `textTertiary` (`0xFF9CA3AF`). | Darken to `0xFF6B7280` for accessibility compliance. |
+
+================================================================================
+13. RUNTIME AND CONNECTED DEVICE STATUS
+================================================================================
+- Connected Devices Detected via `flutter devices`:
+  1. Pixel 9a (mobile) • Device ID: `56161JEBF02819` • android-arm64 • Android 17 (API 37)
+  2. Windows (desktop) • `windows` • windows-x64 • Windows 11 Build 26300.9711
+  3. Chrome (web) • `chrome` • web-javascript • Google Chrome
+  4. Edge (web) • `edge` • web-javascript • Microsoft Edge
+- Active Terminal Process Observed:
+  - Command: `flutter run -d 56161JEBF02819` running in `Tolli-App-email-otp-auth\Tolli-App-email-otp-auth`.
+  - Status: The app is actively compiled and running on the user's connected physical Pixel 9a device.
+
+================================================================================
+14. PRIORITIZED BUG & DEFECT LIST
+================================================================================
+P0: CRITICAL (Security Vulnerabilities & Payment Integrity)
+- BUG-P0-01: Backend payment verification bypass (`server/index.js:1059`). Allows unpaid slot booking.
+- BUG-P0-02: Backend webhook signature bypass (`server/index.js:1152`). Allows fake payment events.
+- BUG-P0-03: Hardcoded secret fallback strings in `server/index.js`. Risk of compromised payment keys.
+
+P1: HIGH (Core Functionality Broken / Platform Crashes)
+- BUG-P1-01: Phone OTP is simulated in `auth_controller.dart`. Users logging in via phone cannot
+  read or write Firestore data due to missing Firebase Auth UID.
+- BUG-P1-02: Missing iOS permission usage strings in `Info.plist` (Camera, Location, Photos, Health).
+- BUG-P1-03: Missing `GoogleService-Info.plist` in `ios/Runner/`.
+
+P2: MEDIUM (UI Usability, Incomplete Features, and Dead Code)
+- BUG-P2-01: Floating bottom navigation bar covers bottom content in scrollable views without padding.
+- BUG-P2-02: Account deletion in `edit_profile_screen.dart` is a mock dialog showing only a SnackBar.
+- BUG-P2-03: Unused `SnapTimeRuler` widget (742 lines) clutters the codebase and unit tests.
+- BUG-P2-04: Server in-memory hold store resets on Render cold starts, potentially dropping active holds.
+
+P3: LOW (Polish, Accessibility, Maintainability)
+- BUG-P3-01: Contrast ratio for `textTertiary` falls below WCAG AA on light backgrounds.
+- BUG-P3-02: Hardcoded Google OAuth client ID in `google_fit_service.dart`.
+- BUG-P3-03: Unused icon assets in `assets/images/` (e.g. `Tolii final.zip` stored directly in assets).
+
+================================================================================
+15. RECOMMENDED FIX ORDER & TECHNICAL ROADMAP
+================================================================================
+Phase 1: Security & Payment Hardening (Immediate Priority)
+1. Patch `server/index.js` line 1059 to enforce `isValidSignature = false` when signature is absent.
+2. Patch `server/index.js` line 1152 to require `x-razorpay-signature` and return 400 if missing.
+3. Remove hardcoded fallback secrets in `server/index.js`; enforce `process.exit(1)` if required
+   environment variables are missing on startup.
+
+Phase 2: Authentication & iOS Configuration
+4. Either implement real SMS provider integration for Phone OTP or disable the Phone toggle
+   in `EmailScreen` to enforce Email OTP / Google Sign-In (both of which mint real Firebase tokens).
+5. Add iOS privacy permission descriptions to `ios/Runner/Info.plist`.
+6. Add `GoogleService-Info.plist` to `ios/Runner/`.
+
+Phase 3: UI Polish & Code Cleanup
+7. Remove or archive `lib/widgets/snap_time_ruler.dart` and streamline `test/venue_booking_test.dart`
+   to focus exclusively on the active 5-section booking screen.
+8. Remove the `assets/images/Tolii final.zip` archive from the Flutter assets bundle.
+9. Standardize bottom scroll padding across all slivers/lists to prevent `CustomBottomNavBar` overlap.
+10. Wire `EditProfileScreen` account deletion to a real deletion service.
+
+================================================================================
+16. ARCHITECTURAL QUESTIONS AND UNKNOWNS
+================================================================================
+1. Phone Authentication Strategy: Is phone authentication intended to use Firebase Phone Auth
+   (requires SHA-256 fingerprint registration in Google Cloud Console) or a third-party Indian
+   SMS gateway (Fast2SMS, MSG91, AiSensy for WhatsApp)?
+2. Backend Deployment Architecture: Should the server in-memory hold store be replaced with Redis
+   or Firestore atomic document transactions to support horizontal scaling across multiple
+   Render instances?
+3. Timeline Widget Decision: Has the `SnapTimeRuler` widget been permanently abandoned in favor
+   of the 3-column discrete slot grid, or is there an intention to resurrect it as an alternative view?
+4. Push Notifications (FCM): In-app Firestore notifications are fully wired, but background push
+   notifications via Firebase Cloud Messaging (FCM) are not yet integrated in `pubspec.yaml`.
+   When should background APNS/FCM notifications be added?
+
+================================================================================
+17. APPENDIX: IMPORTANT FILES AND RESPONSIBILITIES
+================================================================================
+| Category | File Path | Primary Responsibility |
+|----------|-----------|------------------------|
+| App Entry | `lib/main.dart` | Initializes Firebase, sets system UI overlay, launches ToliiApp. |
+| Auth Controller | `lib/controllers/auth_controller.dart` | Manages auth state, OTP verification, Google Sign-In, profile onboarding. |
+| Activities Ctrl | `lib/controllers/activities_controller.dart` | Manages feed filtering, upcoming games, and quick invites state. |
+| Notifications Ctrl | `lib/controllers/notification_controller.dart` | Manages notification subscriptions and unread counter badges. |
+| Active Booking Screen | `lib/views/select_court_date_slot_screen.dart` | 5-section booking UI: date, court, duration, 30-min grid, summary. |
+| Booking Review | `lib/views/booking_review_screen.dart` | Price breakdown, Razorpay SDK trigger, checkout flow. |
+| Booking Status | `lib/views/booking_status_screen.dart` | Post-payment verification, confirmed status, link to game creation. |
+| Booking Detail | `lib/views/booking_detail_screen.dart` | Booking invoice, directions, cancellation & refund request. |
+| My Bookings | `lib/views/my_bookings_screen.dart` | User booking history tab view (All, Upcoming, Completed). |
+| Activity Detail | `lib/views/activity_detail_screen.dart` | Detail view for hosted/joined games with dynamic host/player actions. |
+| Create Activity | `lib/views/create_activity_screen.dart` | Activity hosting form; supports prefilling from confirmed venue bookings. |
+| Community Chat | `lib/views/community_chat_screen.dart` | Real-time chat messages, image upload to Firebase Storage, system events. |
+| Venue Repository | `lib/repositories/venue_repository.dart` | Venues stream, court configs, composite slot creation, overlap status. |
+| Activity Repository | `lib/repositories/activity_repository.dart` | Activity CRUD, join requests, participants subcollection, upcoming streams. |
+| Booking Service | `lib/services/booking_backend_service.dart` | HTTP client communicating with backend `/api/bookings` endpoints. |
+| Time Utilities | `lib/utils/booking_time_utils.dart` | 30-min interval calculations, price calculation in paise, operating hours. |
+| Backend Server | `server/index.js` | Express API: OTP dispatch, slot holds, Razorpay orders, payment verification. |
+| Security Rules | `firestore.rules` | Granular Firestore document read/write authorization rules. |
+| Color Tokens | `lib/constants/app_colors.dart` | Central design color constants (Primary #063E9E). |
+| Typography | `lib/constants/app_typography.dart` | Inter font styles hierarchy. |
+| Dead Widget | `lib/widgets/snap_time_ruler.dart` | Superseded horizontal timeline slider (not used by active booking screen). |
+
+================================================================================
+END OF AUDIT REPORT
+================================================================================

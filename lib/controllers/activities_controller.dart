@@ -224,15 +224,18 @@ class ActivitiesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteActivity(String activityId) async {
-    await _activityRepository.deleteActivity(activityId);
-    _allActivities.removeWhere((a) => a.id == activityId);
-    _userActivities.removeWhere((a) => a.id == activityId);
-    notifyListeners();
+  Future<bool> deleteActivity(String activityId) async {
+    final success = await _activityRepository.deleteActivity(activityId);
+    if (success) {
+      _allActivities.removeWhere((a) => a.id == activityId);
+      _userActivities.removeWhere((a) => a.id == activityId);
+      notifyListeners();
+    }
+    return success;
   }
 
-  Future<void> removePlayerFromActivity(String activityId, String playerId) async {
-    await _activityRepository.removeParticipant(activityId, playerId);
+  Future<bool> removePlayerFromActivity(String activityId, String playerId) async {
+    return _activityRepository.removeParticipant(activityId, playerId);
   }
 
   @override

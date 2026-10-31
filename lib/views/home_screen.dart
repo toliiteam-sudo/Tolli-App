@@ -20,6 +20,7 @@ import 'create_activity_screen.dart';
 import 'nearby_activities_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
+import 'venues_landing_screen.dart';
 
 class _SearchBarSliverDelegate extends SliverPersistentHeaderDelegate {
   final Widget child;
@@ -107,17 +108,17 @@ class _HomeScreenState extends State<HomeScreen> {
             // Index 0: Home Tab
             _buildHomeContent(),
 
-            // Index 1: Nearby Activities Tab
+            // Index 1: Explore Tab
             const NearbyActivitiesScreen(),
 
             // Index 2: Create Action placeholder
             _buildHomeContent(),
 
-            // Index 3: Community Tab
-            const CommunityScreen(),
+            // Index 3: Venues Tab
+            const VenuesLandingScreen(),
 
-            // Index 4: Profile Tab
-            const ProfileScreen(),
+            // Index 4: Messages Tab
+            const CommunityScreen(),
           ],
         ),
         bottomNavigationBar: CustomBottomNavBar(
@@ -407,6 +408,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Image.asset(
                           item['icon'] as String,
                           fit: BoxFit.contain,
+                          errorBuilder: (ctx, err, stack) => const Icon(
+                            Icons.sports_rounded,
+                            size: 24,
+                            color: AppColors.textDark,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -536,6 +542,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             height: 98,
                             fit: BoxFit.contain,
                             alignment: Alignment.bottomCenter,
+                            errorBuilder: (ctx, err, stack) => Container(
+                              height: 98,
+                              alignment: Alignment.bottomCenter,
+                              child: const Icon(
+                                Icons.sports_rounded,
+                                size: 40,
+                                color: AppColors.primary,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -653,6 +668,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: double.infinity,
                         fit: BoxFit.cover,
                         alignment: Alignment.topCenter,
+                        errorBuilder: (ctx, err, stack) => Container(
+                          height: 110,
+                          color: const Color(0xFFEEF4FF),
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.sports_rounded,
+                            size: 40,
+                            color: AppColors.primary,
+                          ),
+                        ),
                       ),
                     ),
                     Padding(

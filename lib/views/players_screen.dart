@@ -94,21 +94,32 @@ class _PlayersScreenState extends State<PlayersScreen> {
     if (!isHost) return;
 
     HapticFeedback.lightImpact();
-    await ActivityRepository().respondToJoinRequest(
+    final success = await ActivityRepository().respondToJoinRequest(
       activityId: widget.activity.id,
       request: req,
       accept: true,
     );
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Approved ${req.userName} for this game!'),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Approved ${req.userName} for this game!'),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Unable to approve ${req.userName}. The activity might be full.'),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   Future<void> _declineJoinRequest(ActivityRequestModel req) async {
@@ -161,18 +172,29 @@ class _PlayersScreenState extends State<PlayersScreen> {
       message: 'Are you sure you want to remove ${player.name} from this activity?',
       confirmText: 'Remove',
       isDestructive: true,
-      onConfirm: () {
-        setState(() {
-          _playersList.removeWhere((p) => p.id == player.id);
-        });
-        ActivitiesController().removePlayerFromActivity(widget.activity.id, player.id);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${player.name} removed from activity'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      onConfirm: () async {
+        final success = await ActivitiesController().removePlayerFromActivity(widget.activity.id, player.id);
+        if (mounted) {
+          if (success) {
+            setState(() {
+              _playersList.removeWhere((p) => p.id == player.id);
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${player.name} removed from activity'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to remove player. Please try again.'),
+                backgroundColor: Color(0xFFDC2626),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
       },
     );
   }

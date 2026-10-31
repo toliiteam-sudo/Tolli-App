@@ -49,7 +49,14 @@ void main() {
     // Verify Activities Screen Elements
     expect(find.text('Nearby activities'), findsOneWidget);
 
-    // Tap on Community Icon
+    // Tap on Venues Icon (4th tab icon)
+    final venuesIcon = find.byIcon(Icons.stadium_outlined);
+    expect(venuesIcon, findsOneWidget);
+    await tester.tap(venuesIcon);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(CustomBottomNavBar), findsOneWidget);
+
+    // Tap on Messages/Community Icon (5th tab icon)
     final communityIcon = find.byWidgetPredicate(
       (widget) =>
           widget is Image &&
@@ -60,18 +67,6 @@ void main() {
     await tester.tap(communityIcon);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(CustomBottomNavBar), findsOneWidget);
-
-    // Tap on Profile Icon
-    final profileIcon = find.byWidgetPredicate(
-      (widget) =>
-          widget is Image &&
-          widget.image is AssetImage &&
-          (widget.image as AssetImage).assetName == AppAssets.profileNavPng,
-    );
-    expect(profileIcon, findsOneWidget);
-    await tester.tap(profileIcon);
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('My Profile'), findsOneWidget);
 
     // Tap back on Home Icon
     final homeIcon = find.byWidgetPredicate(

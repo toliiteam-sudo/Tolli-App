@@ -196,26 +196,48 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
                       ),
                       onPressed: () async {
                         Navigator.of(dialogContext).pop();
-                        await ActivitiesController().deleteActivity(_activity.id);
-
-                        if (mounted) {
-                          nav.pop();
+                        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        if (currentUid.isNotEmpty && _activity.hostId != currentUid && !_activity.isHost) {
                           messenger.showSnackBar(
                             const SnackBar(
-                              content: Row(
-                                children: [
-                                  Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Activity deleted successfully',
-                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
+                              content: Text('Only the host can delete this activity.'),
                               behavior: SnackBarBehavior.floating,
-                              backgroundColor: Color(0xFF0F172A),
+                              backgroundColor: Color(0xFFDC2626),
                             ),
                           );
+                          return;
+                        }
+
+                        final success = await ActivitiesController().deleteActivity(_activity.id);
+
+                        if (mounted) {
+                          if (success) {
+                            nav.pop();
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Row(
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Activity deleted successfully',
+                                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: Color(0xFF0F172A),
+                              ),
+                            );
+                          } else {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('Failed to delete activity. Please try again.'),
+                                behavior: SnackBarBehavior.floating,
+                                backgroundColor: Color(0xFFDC2626),
+                              ),
+                            );
+                          }
                         }
                       },
                       child: Text(
@@ -269,6 +291,17 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
     HapticFeedback.mediumImpact();
     final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (currentUid.isEmpty) return;
+
+    if (currentUid == activity.hostId || activity.isHost) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The host cannot leave their own activity. You can delete the activity instead.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
 
     showDialog(
       context: context,
@@ -387,6 +420,8 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
   }
 
   Future<void> _handleLeaveActivity(String activityId, String currentUid) async {
+    if (_isActionInProgress) return;
+
     setState(() {
       _isActionInProgress = true;
     });
@@ -398,6 +433,10 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
         _isActionInProgress = false;
         if (success) {
           _membershipStatus = ActivityMembershipStatus.notJoined;
+          _activity = _activity.copyWith(
+            joinedPlayers: (_activity.joinedPlayers - 1).clamp(0, _activity.totalPlayers),
+            participantIds: _activity.participantIds?.where((id) => id != currentUid).toList(),
+          );
         }
       });
 
@@ -642,6 +681,10 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
   // 2. VENUE CARD
   // ─────────────────────────────────────────
   Widget _buildVenueCard() {
+    final venueName = _activity.venueName ?? 'Decide location later';
+    final isPending = venueName == 'Decide location later' || !_activity.venueConfirmed;
+    final displayLocation = _activity.venueLocation ?? (isPending ? 'Location to be specified by host' : '$venueName · ${_activity.city}');
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -665,12 +708,12 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEF4FF),
+                  color: isPending ? const Color(0xFFFEF3C7) : const Color(0xFFEEF4FF),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(
-                  Icons.location_on_rounded,
-                  color: AppColors.primary,
+                child: Icon(
+                  isPending ? Icons.location_off_rounded : Icons.location_on_rounded,
+                  color: isPending ? const Color(0xFFD97706) : AppColors.primary,
                   size: 22,
                 ),
               ),
@@ -680,20 +723,24 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Bhavnagar Pickleball Arena',
+                      venueName,
                       style: AppTypography.titleMedium.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textDark,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Bhavnagar · 2.1 km away',
+                      displayLocation,
                       style: AppTypography.caption.copyWith(
                         fontSize: 12,
                         color: AppColors.textSecondary,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -705,14 +752,18 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.check_circle_rounded, size: 17, color: Color(0xFF16A34A)),
+              Icon(
+                isPending ? Icons.schedule_rounded : Icons.check_circle_rounded,
+                size: 17,
+                color: isPending ? const Color(0xFFD97706) : const Color(0xFF16A34A),
+              ),
               const SizedBox(width: 6),
               Text(
-                'Venue confirmed',
+                isPending ? 'Location Pending' : 'Venue Confirmed',
                 style: AppTypography.caption.copyWith(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xFF16A34A),
+                  color: isPending ? const Color(0xFFD97706) : const Color(0xFF16A34A),
                 ),
               ),
             ],
@@ -1269,6 +1320,10 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
   // 9. WHERE YOU'LL PLAY
   // ─────────────────────────────────────────
   Widget _buildWhereYouPlay() {
+    final venueName = _activity.venueName ?? 'Decide location later';
+    final isPending = venueName == 'Decide location later' || !_activity.venueConfirmed;
+    final displayLocation = _activity.venueLocation ?? (isPending ? 'Location to be specified by host' : '$venueName · ${_activity.city}');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1282,7 +1337,7 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
         ),
         const SizedBox(height: 14),
 
-        // Map image
+        // Map image or Location Pending placeholder
         ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Image.asset(
@@ -1302,20 +1357,24 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Bhavnagar Pickleball Arena',
+                    venueName,
                     style: AppTypography.titleMedium.copyWith(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textDark,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '2.1 km from you',
+                    displayLocation,
                     style: AppTypography.caption.copyWith(
                       fontSize: 12,
                       color: AppColors.textSecondary,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -1335,7 +1394,7 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
                     const Icon(Icons.navigation_rounded, size: 15, color: AppColors.primary),
                     const SizedBox(width: 6),
                     Text(
-                      'Open in Maps',
+                      'Copy Location',
                       style: AppTypography.caption.copyWith(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -1645,9 +1704,68 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
         );
 
       case ActivityMembershipStatus.notJoined:
+        if (activity.status == 'cancelled') {
+          return Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              'Activity Cancelled',
+              style: AppTypography.buttonText.copyWith(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+          );
+        }
+
+        if (activity.isExpired) {
+          return Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              'Activity Expired',
+              style: AppTypography.buttonText.copyWith(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+          );
+        }
+
+        if (activity.joinedPlayers >= activity.totalPlayers) {
+          return Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              'Activity Full',
+              style: AppTypography.buttonText.copyWith(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+          );
+        }
+
         final buttonLabel = activity.isInviteOnly ? 'Request to Join' : 'Join Game';
         return GestureDetector(
           onTap: () async {
+            if (_isActionInProgress) return;
+
             if (currentUid.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Please log in to join activities.')),
@@ -1679,6 +1797,9 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
               if (mounted) {
                 setState(() {
                   _isActionInProgress = false;
+                  if (success) {
+                    _membershipStatus = ActivityMembershipStatus.pending;
+                  }
                 });
                 if (success) {
                   messenger.showSnackBar(
@@ -1709,11 +1830,18 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
               if (mounted) {
                 setState(() {
                   _isActionInProgress = false;
+                  if (success) {
+                    _membershipStatus = ActivityMembershipStatus.joined;
+                    _activity = _activity.copyWith(
+                      joinedPlayers: _activity.joinedPlayers + 1,
+                      participantIds: [...(_activity.participantIds ?? []), currentUid],
+                    );
+                  }
                 });
                 if (success) {
                   nav.push(
                     MaterialPageRoute(
-                      builder: (_) => JoinedScreen(activity: activity),
+                      builder: (_) => JoinedScreen(activity: _activity),
                     ),
                   );
                 } else {
@@ -1741,21 +1869,30 @@ class _ActivityDetailScreenState extends State<ActivityDetailScreen> {
               ],
             ),
             alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  buttonLabel,
-                  style: AppTypography.buttonText.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
+            child: _isActionInProgress
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.2,
+                    ),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        buttonLabel,
+                        style: AppTypography.buttonText.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 6),
-                const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
-              ],
-            ),
           ),
         );
     }

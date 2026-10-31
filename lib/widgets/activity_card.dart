@@ -66,6 +66,11 @@ class ActivityCard extends StatelessWidget {
                       child: Image.asset(
                         activity.iconAsset,
                         fit: BoxFit.contain,
+                        errorBuilder: (ctx, err, stack) => const Icon(
+                          Icons.sports_rounded,
+                          size: 24,
+                          color: AppColors.primary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

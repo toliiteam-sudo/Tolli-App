@@ -161,20 +161,10 @@ class AuthController extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        if (_state.rawPhoneNumber.trim().isEmpty) {
-          _state.isLoading = false;
-          _state.phoneError = 'Please enter your mobile number';
-          notifyListeners();
-          return false;
-        }
-
-        await Future.delayed(const Duration(milliseconds: 350));
         _state.isLoading = false;
-        _state.otpError = null;
-        startResendTimer(seconds: 23);
-        _state.currentStep = 2;
+        _state.phoneError = 'SMS OTP is temporarily unavailable. Please sign in using Email OTP or Google Sign-In.';
         notifyListeners();
-        return true;
+        return false;
       }
     } catch (e) {
       debugPrint('[AuthController] sendOtp exception: $e');
@@ -280,12 +270,10 @@ class AuthController extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        await Future.delayed(const Duration(milliseconds: 350));
         _state.isLoading = false;
-        _state.otpError = null;
-        _state.currentStep = 3;
+        _state.otpError = 'SMS verification is unsupported without an active phone auth session. Please use Email OTP.';
         notifyListeners();
-        return true;
+        return false;
       }
     } catch (e) {
       debugPrint('[AuthController] verifyOtp exception: $e');

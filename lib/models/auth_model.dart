@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+
 enum UsernameValidationStatus {
   idle,
   invalid,
@@ -51,6 +53,16 @@ class AuthModel {
   bool isGoogleSignedIn;
 
   String? get photoUrl => avatarUrl ?? googlePhotoUrl;
+
+  String get uid {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && user.uid.isNotEmpty) return user.uid;
+    } catch (_) {}
+    if (username.isNotEmpty) return username;
+    if (email.contains('@')) return email.split('@').first;
+    return 'user_anonymous';
+  }
 
   // Error & loading states
   String? phoneError;

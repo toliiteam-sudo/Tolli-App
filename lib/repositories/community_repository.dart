@@ -14,20 +14,25 @@ class CommunityRepository {
     required String currentUid,
     int limit = 50,
   }) {
-    return _firestoreService.communityCollection
-        .doc(communityId)
-        .collection('messages')
-        .orderBy('createdAt', descending: false)
-        .limit(limit)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return ChatMessageModel.fromFirestore(doc, currentUid);
-      }).toList();
-    }).handleError((error) {
-      debugPrint('Error in watchCommunityMessages stream: $error');
-      return <ChatMessageModel>[];
-    });
+    try {
+      return _firestoreService.communityCollection
+          .doc(communityId)
+          .collection('messages')
+          .orderBy('createdAt', descending: false)
+          .limit(limit)
+          .snapshots()
+          .map((snapshot) {
+        return snapshot.docs.map((doc) {
+          return ChatMessageModel.fromFirestore(doc, currentUid);
+        }).toList();
+      }).handleError((error) {
+        debugPrint('Error in watchCommunityMessages stream: $error');
+        return <ChatMessageModel>[];
+      });
+    } catch (e) {
+      debugPrint('[CommunityRepository] Firebase uninitialized: $e');
+      return Stream.value(<ChatMessageModel>[]);
+    }
   }
 
   /// Send a community message

@@ -47,19 +47,19 @@ class CustomBottomNavBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // 1. Home
+              // 1. Home (Index 0)
               _buildNavIcon(
                 index: 0,
                 asset: AppAssets.homeNavPng,
               ),
 
-              // 2. Activities
+              // 2. Explore (Index 1)
               _buildNavIcon(
                 index: 1,
                 asset: AppAssets.activitiesNavPng,
               ),
 
-              // 3. Center "+" Action Button
+              // 3. Center "+" Create Button (Index 2)
               Expanded(
                 child: GestureDetector(
                   onTap: () {
@@ -96,16 +96,16 @@ class CustomBottomNavBar extends StatelessWidget {
                 ),
               ),
 
-              // 4. Community
+              // 4. Venues (Index 3)
               _buildNavIcon(
                 index: 3,
-                asset: AppAssets.communityNavPng,
+                iconData: Icons.stadium_outlined,
               ),
 
-              // 5. Profile
+              // 5. Messages (Index 4)
               _buildNavIcon(
                 index: 4,
-                asset: AppAssets.profileNavPng,
+                asset: AppAssets.communityNavPng,
               ),
             ],
           ),
@@ -116,10 +116,26 @@ class CustomBottomNavBar extends StatelessWidget {
 
   Widget _buildNavIcon({
     required int index,
-    required String asset,
+    String? asset,
+    IconData? iconData,
   }) {
     final isSelected = currentIndex == index;
     final color = isSelected ? AppColors.primary : const Color(0xFF94A3B8);
+
+    IconData fallbackIconForIndex(int idx) {
+      switch (idx) {
+        case 0:
+          return Icons.home_rounded;
+        case 1:
+          return Icons.explore_rounded;
+        case 3:
+          return Icons.stadium_outlined;
+        case 4:
+          return Icons.forum_rounded;
+        default:
+          return Icons.grid_view_rounded;
+      }
+    }
 
     return Expanded(
       child: GestureDetector(
@@ -135,13 +151,24 @@ class CustomBottomNavBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             alignment: Alignment.center,
-            child: Image.asset(
-              asset,
-              width: 24,
-              height: 24,
-              fit: BoxFit.contain,
-              color: color,
-            ),
+            child: iconData != null
+                ? Icon(
+                    iconData,
+                    size: 22,
+                    color: color,
+                  )
+                : Image.asset(
+                    asset!,
+                    width: 24,
+                    height: 24,
+                    fit: BoxFit.contain,
+                    color: color,
+                    errorBuilder: (ctx, err, stack) => Icon(
+                      fallbackIconForIndex(index),
+                      size: 22,
+                      color: color,
+                    ),
+                  ),
           ),
         ),
       ),
