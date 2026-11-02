@@ -48,9 +48,9 @@ TOLII uses a zero-cost, high-deliverability **Email OTP Authentication System** 
 |                                                                     │         |
 |              Dispatches Email via Multi-Tier Fallback:              │         |
 |              ┌────────────────────────────────────────┐             │         |
-|              │ Tier 1: Gmail API (OAuth2 over HTTPS)  │ ◄── PRIMARY │         |
-|              │ Tier 2: SendGrid HTTP API              │ ◄── BACKUP  │         |
-|              │ Tier 3: Resend HTTP API                │ ◄── BACKUP  │         |
+|              │ Tier 1: Brevo HTTP API (Permanent Key) │ ◄── PRIMARY │         |
+|              │ Tier 2: Gmail API (OAuth2 over HTTPS)  │ ◄── BACKUP  │         |
+|              │ Tier 3: SendGrid / Mailjet / Resend    │ ◄── BACKUP  │         |
 |              └────────────────────────────────────────┘             │         |
 +────────────────────────────────────┬────────────────────────────────┼─────────+
                                      │                                │
