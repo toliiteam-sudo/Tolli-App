@@ -536,22 +536,7 @@ app.post('/api/request-otp', async (req, res) => {
     let emailSent = false;
     const transportErrors = [];
 
-    // Attempt 1: Gmail API over HTTPS (OAuth2) — fast (~500ms), 100% Primary Inbox, 500/day
-    if (!emailSent && GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
-      try {
-        await Promise.race([
-          sendViaGmailApi(cleanEmail, emailSubject, emailHtml),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail API timeout')), 8000))
-        ]);
-        console.log(`[OTP] ✅ Dispatched via Gmail API to ${cleanEmail}`);
-        emailSent = true;
-      } catch (err) {
-        console.warn(`[OTP] ⚠️ Gmail API failed (${err.message}), trying Brevo...`);
-        transportErrors.push({ transport: 'Gmail API', error: err.message });
-      }
-    }
-
-    // Attempt 2: Brevo HTTP API — fast (~400ms), permanent free tier
+    // Attempt 1: Brevo HTTP API — fast (~400ms), permanent static key, NEVER expires
     if (!emailSent && BREVO_API_KEY) {
       try {
         await Promise.race([
@@ -561,8 +546,23 @@ app.post('/api/request-otp', async (req, res) => {
         console.log(`[OTP] ✅ Dispatched via Brevo API to ${cleanEmail}`);
         emailSent = true;
       } catch (err) {
-        console.warn(`[OTP] ⚠️ Brevo API failed (${err.message}), trying Mailjet...`);
+        console.warn(`[OTP] ⚠️ Brevo API failed (${err.message}), trying Gmail API...`);
         transportErrors.push({ transport: 'Brevo API', error: err.message });
+      }
+    }
+
+    // Attempt 2: Gmail API over HTTPS (OAuth2) — fast fallback (~500ms), 500/day
+    if (!emailSent && GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
+      try {
+        await Promise.race([
+          sendViaGmailApi(cleanEmail, emailSubject, emailHtml),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Gmail API timeout')), 8000))
+        ]);
+        console.log(`[OTP] ✅ Dispatched via Gmail API to ${cleanEmail}`);
+        emailSent = true;
+      } catch (err) {
+        console.warn(`[OTP] ⚠️ Gmail API failed (${err.message}), trying SendGrid...`);
+        transportErrors.push({ transport: 'Gmail API', error: err.message });
       }
     }
 
