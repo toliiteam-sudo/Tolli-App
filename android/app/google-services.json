@@ -51,6 +51,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "993511560623-nkos1q17o87aii40jvomdo4rhmvie4d5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tolli.app",
+            "certificate_hash": "3dabcef6de1654b9758b5201ddca31c1d23bff25"
+          }
+        },
+        {
           "client_id": "993511560623-mhbbgab25khlo2f3cn6dsj9iggitp9pq.apps.googleusercontent.com",
           "client_type": 3
         }
