@@ -1243,14 +1243,7 @@ app.post('/api/bookings/prepare-payment', authenticateOptionalUser, async (req, 
     // 4. Overlap Validation across the entire requested interval
     const candidateBookings = [];
 
-    // Query in-memory bookings store
-    for (const b of inMemoryBookingsStore.values()) {
-      if (b.courtId === courtId && b.bookingDate === datePart) {
-        candidateBookings.push(b);
-      }
-    }
-
-    // Query Firestore bookings if initialized
+    // Query Firestore bookings FIRST if initialized (authoritative source after server restarts)
     if (isFirebaseAdminInitialized) {
       const db = admin.firestore();
       const snapshot = await db.collection('bookings')
@@ -1259,7 +1252,13 @@ app.post('/api/bookings/prepare-payment', authenticateOptionalUser, async (req, 
         .get();
 
       for (const doc of snapshot.docs) {
-        const b = doc.data();
+        candidateBookings.push(doc.data());
+      }
+    }
+
+    // Merge with in-memory bookings (newly created holds not yet synced to Firestore)
+    for (const b of inMemoryBookingsStore.values()) {
+      if (b.courtId === courtId && b.bookingDate === datePart) {
         if (!candidateBookings.some(item => item.bookingId === b.bookingId)) {
           candidateBookings.push(b);
         }
