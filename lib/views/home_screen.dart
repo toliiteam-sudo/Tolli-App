@@ -757,27 +757,32 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
     return AnimatedBuilder(
       animation: ActivitiesController(),
       builder: (context, _) {
-        final activities = ActivitiesController().userActivities;
+        final userActivities = ActivitiesController().userActivities;
+        final allActivities = ActivitiesController().activities;
+        final bool hasUserActivities = userActivities.isNotEmpty;
+        final activities = hasUserActivities ? userActivities : allActivities.take(5).toList();
+
         if (activities.isEmpty) {
           return const SizedBox.shrink();
         }
 
         final int totalCount = activities.length;
         final int displayIndex = (_currentIndex % totalCount) + 1;
+        final String sectionTitle = hasUserActivities ? "WHAT'S COMING UP" : "UPCOMING NEARBY";
 
         return Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            // Section Header Row: WHAT'S COMING UP Title (Left) + Page Indicator (Right)
+            // Section Header Row: Title (Left) + Page Indicator (Right)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "WHAT'S COMING UP",
+                    sectionTitle,
                     style: AppTypography.caption.copyWith(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -810,7 +815,7 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
             if (totalCount == 1)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildCard(context, activities[0]),
+                child: _buildCard(context, activities[0], isUserJoined: hasUserActivities),
               )
             else
               SizedBox(
@@ -829,7 +834,7 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
                     final item = activities[index % totalCount];
                     return Padding(
                       padding: const EdgeInsets.only(left: 16, right: 0),
-                      child: _buildCard(context, item),
+                      child: _buildCard(context, item, isUserJoined: hasUserActivities),
                     );
                   },
                 ),
@@ -841,7 +846,7 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
     );
   }
 
-  Widget _buildCard(BuildContext context, ActivityModel item) {
+  Widget _buildCard(BuildContext context, ActivityModel item, {bool isUserJoined = true}) {
     return GestureDetector(
       onTap: () {
         HapticFeedback.lightImpact();
@@ -877,15 +882,19 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: item.isHost ? const Color(0xFFFEF3C7) : AppColors.badgePeachBg,
+                          color: item.isHost
+                              ? const Color(0xFFFEF3C7)
+                              : (isUserJoined ? AppColors.badgePeachBg : const Color(0xFFDCFCE7)),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          item.isHost ? 'HOSTING' : 'UPCOMING ACTIVITY',
+                          item.isHost
+                              ? 'HOSTING'
+                              : (isUserJoined ? 'JOINED' : 'OPEN TO JOIN'),
                           style: AppTypography.caption.copyWith(
                             color: item.isHost
                                 ? const Color(0xFFD97706)
-                                : AppColors.badgePeachText,
+                                : (isUserJoined ? AppColors.badgePeachText : const Color(0xFF16A34A)),
                             fontSize: 9.5,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.4,
@@ -918,7 +927,7 @@ class _UpcomingActivityCarouselState extends State<UpcomingActivityCarousel> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              item.subtitle,
+                              item.displaySubtitle,
                               style: AppTypography.caption.copyWith(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w600,

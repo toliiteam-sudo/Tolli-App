@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/booking_model.dart';
 import '../models/venue_model.dart';
 
@@ -107,14 +108,23 @@ class BookingBackendService {
   static String baseUrl = 'https://tolli-app.onrender.com';
   static final List<String> _candidateUrls = [
     'https://tolli-app.onrender.com',
-    'http://10.98.254.157:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:3000',
-    'http://10.0.2.2:3000',
   ];
 
   static void setBaseUrl(String url) {
     baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+  }
+
+  Future<Map<String, String>> _buildHeaders() async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    try {
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+    } catch (_) {}
+    return headers;
   }
 
   Map<String, dynamic>? _tryParseJson(String body) {
@@ -141,6 +151,8 @@ class BookingBackendService {
       'venueName': venue.name,
       'venueAddress': venue.address,
       'venueImageAsset': venue.imageAssets.isNotEmpty ? venue.imageAssets.first : '',
+      'venueLatitude': venue.latitude,
+      'venueLongitude': venue.longitude,
       'courtId': court.id,
       'courtName': court.name,
       'slotId': slot.id,
@@ -161,7 +173,7 @@ class BookingBackendService {
     }
     final body = jsonEncode(payload);
 
-    final headers = {'Content-Type': 'application/json'};
+    final headers = await _buildHeaders();
 
     // Build list of target URLs to try (current baseUrl first, then candidate fallbacks)
     final urlsToTry = <String>[baseUrl];
@@ -251,7 +263,7 @@ class BookingBackendService {
       'razorpayPaymentId': razorpayPaymentId,
       'razorpaySignature': razorpaySignature,
     });
-    final headers = {'Content-Type': 'application/json'};
+    final headers = await _buildHeaders();
 
     final urlsToTry = <String>[baseUrl];
     for (final cand in _candidateUrls) {
@@ -264,10 +276,17 @@ class BookingBackendService {
 
     for (final targetBase in urlsToTry) {
       try {
-        final url = Uri.parse('$targetBase/api/payments/verify');
-        final response = await http
+        Uri url = Uri.parse('$targetBase/api/payments/verify');
+        http.Response response = await http
             .post(url, headers: headers, body: body)
             .timeout(const Duration(seconds: 15));
+
+        if (response.statusCode == 404) {
+          url = Uri.parse('$targetBase/api/bookings/verify-payment');
+          response = await http
+              .post(url, headers: headers, body: body)
+              .timeout(const Duration(seconds: 15));
+        }
 
         final data = _tryParseJson(response.body);
 
@@ -306,7 +325,7 @@ class BookingBackendService {
     required String userId,
   }) async {
     final body = jsonEncode({'userId': userId});
-    final headers = {'Content-Type': 'application/json'};
+    final headers = await _buildHeaders();
 
     final urlsToTry = <String>[baseUrl];
     for (final cand in _candidateUrls) {
@@ -358,7 +377,7 @@ class BookingBackendService {
   }) async {
     if (bookingId.isEmpty) return false;
     final body = jsonEncode({'bookingId': bookingId});
-    final headers = {'Content-Type': 'application/json'};
+    final headers = await _buildHeaders();
 
     final urlsToTry = <String>[baseUrl];
     for (final cand in _candidateUrls) {
@@ -443,7 +462,7 @@ class BookingBackendService {
       payload['bookingDate'] = bookingDate;
     }
     final body = jsonEncode(payload);
-    final headers = {'Content-Type': 'application/json'};
+    final headers = await _buildHeaders();
 
     final urlsToTry = <String>[baseUrl];
     for (final cand in _candidateUrls) {

@@ -231,6 +231,13 @@ class _BookingReviewScreenState extends State<BookingReviewScreen> {
 
     try {
       _razorpay.open(options);
+      // Razorpay sheet is now active. Reset loading so the button is not
+      // permanently disabled if the user dismisses the sheet and returns here.
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('[Razorpay Checkout Error]: $e');
       if (!mounted) return;

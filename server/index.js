@@ -1136,8 +1136,31 @@ app.get('/api/bookings/availability', async (req, res) => {
   }
 });
 
+// Authentication middleware: validates Firebase ID Token if Bearer header is passed
+async function authenticateOptionalUser(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split('Bearer ')[1].trim();
+      if (isFirebaseAdminInitialized) {
+        try {
+          const decoded = await admin.auth().verifyIdToken(token);
+          req.user = decoded;
+          req.authenticatedUid = decoded.uid;
+          if (req.body && !req.body.userId) {
+            req.body.userId = decoded.uid;
+          }
+        } catch (err) {
+          console.warn('[AUTH WARN] Token validation failed:', err.message);
+        }
+      }
+    }
+  } catch (_) {}
+  next();
+}
+
 // 1. POST /api/bookings/prepare-payment: Atomically Reserve Interval & Place 10-min Hold
-app.post('/api/bookings/prepare-payment', async (req, res) => {
+app.post('/api/bookings/prepare-payment', authenticateOptionalUser, async (req, res) => {
   try {
     const {
       userId,
@@ -1435,8 +1458,8 @@ app.post('/api/bookings/prepare-payment', async (req, res) => {
   }
 });
 
-// 2. POST /api/payments/verify: Backend HMAC Verification & Confirmation
-app.post('/api/payments/verify', async (req, res) => {
+// 2. POST /api/payments/verify & /api/bookings/verify-payment: Backend HMAC Verification & Confirmation
+app.post(['/api/payments/verify', '/api/bookings/verify-payment'], authenticateOptionalUser, async (req, res) => {
   try {
     const { bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature, userId } = req.body;
 
@@ -1640,8 +1663,8 @@ app.post('/api/bookings/:bookingId/release-hold', async (req, res) => {
 // Deduplication cache for fallback non-Firebase environments
 const inMemoryProcessedWebhookIds = new Set();
 
-// 3. POST /api/webhooks/razorpay: Razorpay Signed Webhook Endpoint
-app.post('/api/webhooks/razorpay', async (req, res) => {
+// 3. POST /api/webhooks/razorpay & /api/bookings/webhook: Razorpay Signed Webhook Endpoint
+app.post(['/api/webhooks/razorpay', '/api/bookings/webhook'], async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'];
     if (!signature) {

@@ -83,6 +83,8 @@ class BookingModel {
   final int? holdExpiresAt;
   final String cancellationPolicySnapshot;
   final String? createdGameId;
+  final double? venueLatitude;
+  final double? venueLongitude;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -118,6 +120,8 @@ class BookingModel {
     this.holdExpiresAt,
     required this.cancellationPolicySnapshot,
     this.createdGameId,
+    this.venueLatitude,
+    this.venueLongitude,
     required this.createdAt,
     required this.updatedAt,
   });

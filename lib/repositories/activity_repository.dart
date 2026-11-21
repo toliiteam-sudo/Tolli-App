@@ -110,24 +110,38 @@ class ActivityRepository {
   /// Stream of all real-time activities from Firestore (filtered for Explore)
   Stream<List<ActivityModel>> watchActivities({String? currentUid}) {
     return _firestoreService.activitiesCollection
-        .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) {
+      final list = snapshot.docs.map((doc) {
         return ActivityModel.fromFirestore(doc, currentUid: currentUid);
       }).where((activity) {
         if (activity.status == 'cancelled' || activity.status == 'completed' || activity.status == 'expired') return false;
         if (activity.isExpired) return false;
+
+        // Determine whether the current user is a host or participant.
+        // Check the hostId field directly rather than the derived isHost flag
+        // so this works correctly even during an auth-state race where
+        // currentUid arrives after the first snapshot.
         final isParticipant = currentUid != null &&
             currentUid.isNotEmpty &&
             (activity.hostId == currentUid ||
-                activity.isHost ||
                 (activity.participantIds != null && activity.participantIds!.contains(currentUid)));
+
+        // Only hide a full activity from non-participants (e.g. in Explore).
+        // Hosts and joined participants must always see it.
         if (!isParticipant && activity.joinedPlayers >= activity.totalPlayers) {
           return false;
         }
         return true;
       }).toList();
+
+      list.sort((a, b) {
+        final dtA = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final dtB = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return dtA.compareTo(dtB);
+      });
+
+      return list;
     }).handleError((error) {
       debugPrint('Error in watchActivities stream: $error');
       return <ActivityModel>[];
@@ -138,78 +152,35 @@ class ActivityRepository {
   Stream<List<ActivityModel>> watchUserUpcomingActivities(String uid) {
     if (uid.isEmpty) return Stream.value([]);
     
-    final participantStream = _firestoreService.activitiesCollection
-        .where('participantIds', arrayContains: uid)
+    return _firestoreService.activitiesCollection
         .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => ActivityModel.fromFirestore(doc, currentUid: uid)).toList())
-        .handleError((error) {
-      debugPrint('Error in watchUserUpcomingActivities participantStream: $error');
+        .map((snapshot) {
+      final list = snapshot.docs.map((doc) {
+        return ActivityModel.fromFirestore(doc, currentUid: uid);
+      }).where((activity) {
+        if (activity.status == 'cancelled' || activity.status == 'completed' || activity.status == 'expired') {
+          return false;
+        }
+        if (activity.isExpired) {
+          return false;
+        }
+        final isParticipant = activity.hostId == uid ||
+            activity.isHost ||
+            (activity.participantIds != null && activity.participantIds!.contains(uid));
+        return isParticipant;
+      }).toList();
+
+      list.sort((a, b) {
+        final dateA = a.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final dateB = b.date ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return dateA.compareTo(dateB);
+      });
+
+      return list;
+    }).handleError((error) {
+      debugPrint('Error in watchUserUpcomingActivities stream: $error');
       return <ActivityModel>[];
     });
-
-    final hostStream = _firestoreService.activitiesCollection
-        .where('hostId', isEqualTo: uid)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => ActivityModel.fromFirestore(doc, currentUid: uid)).toList())
-        .handleError((error) {
-      debugPrint('Error in watchUserUpcomingActivities hostStream: $error');
-      return <ActivityModel>[];
-    });
-
-    return RxStreamCombine.combineTwo<
-        List<ActivityModel>,
-        List<ActivityModel>,
-        List<ActivityModel>>(
-      hostStream,
-      participantStream,
-      (hosts, parts) {
-        debugPrint('[UPCOMING_DEBUG] currentUser.uid: $uid');
-        debugPrint('[UPCOMING_DEBUG] hosted query result IDs: ${hosts.map((a) => a.id).toList()}');
-        debugPrint('[UPCOMING_DEBUG] joined query result IDs: ${parts.map((a) => a.id).toList()}');
-
-        final Map<String, ActivityModel> map = {};
-        for (var a in hosts) {
-          map[a.id] = a.copyWith(isHost: true);
-        }
-        for (var a in parts) {
-          if (!map.containsKey(a.id)) {
-            map[a.id] = a;
-          }
-        }
-
-        debugPrint('[UPCOMING_DEBUG] merged IDs: ${map.keys.toList()}');
-
-        final now = DateTime.now();
-        final upcomingList = map.values.where((a) {
-          if (a.status == 'cancelled' || a.status == 'completed' || a.status == 'expired') {
-            return false;
-          }
-          if (a.isExpired) {
-            return false;
-          }
-          final endTs = a.endTimestamp;
-          if (endTs != null && !endTs.isAfter(now)) {
-            return false;
-          }
-          if (a.date != null && a.date!.isBefore(now.subtract(const Duration(hours: 3)))) {
-            return false;
-          }
-          return true;
-        }).toList();
-
-        debugPrint('[UPCOMING_DEBUG] filtered upcoming IDs: ${upcomingList.map((a) => a.id).toList()}');
-
-        upcomingList.sort((a, b) {
-          final dateA = a.date ?? DateTime.now();
-          final dateB = b.date ?? DateTime.now();
-          return dateA.compareTo(dateB);
-        });
-
-        debugPrint('[UPCOMING_DEBUG] final Home upcoming IDs: ${upcomingList.map((a) => '${a.title} (${a.id})').toList()}');
-
-        return upcomingList;
-      },
-    );
   }
 
   /// Stream of activities hosted by [uid]

@@ -31,7 +31,7 @@ class ActivitiesController extends ChangeNotifier {
 
   List<DateItemModel> get dates => _dates;
   List<FilterChipModel> get filters => _filters;
-  List<ActivityModel> get userActivities => _userActivities;
+  List<ActivityModel> get userActivities => _userActivities.where((a) => !a.isExpired).toList();
   List<PlayerModel> get quickInvites => _quickInvites;
 
   bool isRequestPending(String activityId) => _pendingRequestActivityIds.contains(activityId);
@@ -64,7 +64,22 @@ class ActivitiesController extends ChangeNotifier {
       _activitiesSubscription = _activityRepository
           .watchActivities(currentUid: currentUid)
           .listen((firestoreActivities) {
-        _allActivities = firestoreActivities;
+        // The Firestore stream is the single source of truth.
+        // Build a map of what the server returned.
+        final Map<String, ActivityModel> serverMap = {
+          for (var a in firestoreActivities) a.id: a,
+        };
+
+        // Keep any optimistic entries whose id is non-empty and not yet in
+        // the server snapshot (brief propagation window after a local write).
+        // Once Firestore confirms the document, the server entry takes over.
+        for (var a in _allActivities) {
+          if (a.id.isNotEmpty && !serverMap.containsKey(a.id)) {
+            serverMap[a.id] = a;
+          }
+        }
+
+        _allActivities = serverMap.values.toList();
         notifyListeners();
       }, onError: (error) {
         debugPrint('Error listening to real-time activities: $error');
@@ -74,7 +89,19 @@ class ActivitiesController extends ChangeNotifier {
         _userActivitiesSubscription = _activityRepository
             .watchUserUpcomingActivities(currentUid)
             .listen((upcoming) {
-          _userActivities = upcoming;
+          // Same server-authoritative approach for user activities.
+          final Map<String, ActivityModel> serverMap = {
+            for (var a in upcoming) a.id: a,
+          };
+
+          // Retain optimistic entries not yet confirmed by the server.
+          for (var a in _userActivities) {
+            if (a.id.isNotEmpty && !serverMap.containsKey(a.id)) {
+              serverMap[a.id] = a;
+            }
+          }
+
+          _userActivities = serverMap.values.toList();
           notifyListeners();
         }, onError: (error) {
           debugPrint('Error listening to user upcoming activities: $error');
@@ -142,7 +169,6 @@ class ActivitiesController extends ChangeNotifier {
   }
 
   List<ActivityModel> get activities {
-    final now = DateTime.now();
     // 1. Filter out expired or cancelled activities
     final nonExpired = _allActivities.where((a) {
       if (a.status == 'cancelled' || a.status == 'completed' || a.status == 'expired') {
@@ -151,23 +177,22 @@ class ActivitiesController extends ChangeNotifier {
       if (a.isExpired) {
         return false;
       }
-      if (a.date != null && a.endTimestamp != null && a.endTimestamp!.isBefore(now)) {
-        return false;
-      }
       return true;
     }).toList();
 
-    // 2. Filter by selected date strip
-    if (_dates.isNotEmpty && _selectedDateIndex >= 0 && _selectedDateIndex < _dates.length) {
+    // 2. Filter by selected date strip only when specific date filter is selected
+    if (_selectedFilterId == 'date' && _dates.isNotEmpty && _selectedDateIndex >= 0 && _selectedDateIndex < _dates.length) {
       final selectedDate = _dates[_selectedDateIndex].date;
-      return nonExpired.where((a) {
+      final filtered = nonExpired.where((a) {
         if (a.date == null) return false;
         return a.date!.year == selectedDate.year &&
             a.date!.month == selectedDate.month &&
             a.date!.day == selectedDate.day;
       }).toList();
+      return filtered.isNotEmpty ? filtered : nonExpired;
     }
 
+    // Default 'all': Return all non-expired activities sorted chronologically
     return nonExpired;
   }
 
@@ -177,6 +202,7 @@ class ActivitiesController extends ChangeNotifier {
     for (int i = 0; i < _dates.length; i++) {
       _dates[i] = _dates[i].copyWith(isSelected: i == index);
     }
+    _selectedFilterId = 'date';
     notifyListeners();
   }
 
@@ -228,12 +254,24 @@ class ActivitiesController extends ChangeNotifier {
   }
 
   void addActivity(ActivityModel activity) {
+    // An empty id means Firestore hasn't returned the doc id yet.
+    // Inserting it would create an orphan entry that the server stream
+    // can never replace (no matching key), corrupting the list permanently.
+    if (activity.id.isEmpty) return;
+
     final hostActivity = activity.copyWith(
       isHost: true,
       venueConfirmed: true,
     );
-    _allActivities.insert(0, hostActivity);
-    _userActivities.insert(0, hostActivity);
+
+    // Idempotent: skip if already present (prevents duplicates when called
+    // more than once or when the stream fires before this method returns).
+    if (!_allActivities.any((a) => a.id == hostActivity.id)) {
+      _allActivities.insert(0, hostActivity);
+    }
+    if (!_userActivities.any((a) => a.id == hostActivity.id)) {
+      _userActivities.insert(0, hostActivity);
+    }
     notifyListeners();
   }
 
@@ -267,6 +305,7 @@ class ActivitiesController extends ChangeNotifier {
   @override
   void dispose() {
     _activitiesSubscription?.cancel();
+    _userActivitiesSubscription?.cancel();
     super.dispose();
   }
 }

@@ -110,14 +110,53 @@ class ActivityModel {
       date?.add(Duration(minutes: durationMinutes));
 
   bool get isExpired {
+    if (status == 'cancelled' || status == 'completed' || status == 'expired') {
+      return true;
+    }
+    if (date == null) {
+      return true;
+    }
     final now = DateTime.now();
-    if (endTimestamp != null) {
-      return endTimestamp!.isBefore(now);
-    }
+    final effectiveEnd = endTimestamp ?? date!.add(Duration(minutes: durationMinutes));
+    return effectiveEnd.isBefore(now);
+  }
+
+  static String _getMonthShort(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[(month - 1) % 12];
+  }
+
+  static String _getWeekdayShort(int weekday) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days[(weekday - 1) % 7];
+  }
+
+  String get displaySubtitle {
     if (date != null) {
-      return date!.isBefore(now);
+      final now = DateTime.now();
+      final isToday = date!.year == now.year && date!.month == now.month && date!.day == now.day;
+      final tomorrow = now.add(const Duration(days: 1));
+      final isTomorrow = date!.year == tomorrow.year && date!.month == tomorrow.month && date!.day == tomorrow.day;
+
+      String datePrefix;
+      if (isToday) {
+        datePrefix = 'Today, ${date!.day} ${_getMonthShort(date!.month)}';
+      } else if (isTomorrow) {
+        datePrefix = 'Tomorrow, ${date!.day} ${_getMonthShort(date!.month)}';
+      } else {
+        datePrefix = '${_getWeekdayShort(date!.weekday)}, ${date!.day} ${_getMonthShort(date!.month)}';
+      }
+
+      final hour = date!.hour;
+      final minute = date!.minute.toString().padLeft(2, '0');
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final hour12 = hour % 12 == 0 ? 12 : hour % 12;
+      final timeStr = '$hour12:$minute $period';
+
+      final loc = (venueName != null && venueName!.isNotEmpty) ? venueName! : city;
+      return '$datePrefix · $timeStr · $loc';
     }
-    return false;
+    return subtitle;
   }
 
   double get progress =>
@@ -196,9 +235,11 @@ class ActivityModel {
     }
 
     DateTime? date;
-    final ts = data['date'] ?? data['startTimestamp'];
+    final ts = data['date'] ?? data['startTimestamp'] ?? data['bookingDate'];
     if (ts is Timestamp) {
       date = ts.toDate();
+    } else if (ts is num) {
+      date = DateTime.fromMillisecondsSinceEpoch(ts.toInt());
     } else if (ts is String) {
       date = DateTime.tryParse(ts);
     }

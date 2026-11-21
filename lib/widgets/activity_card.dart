@@ -88,7 +88,7 @@ class ActivityCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            activity.subtitle,
+                            activity.displaySubtitle,
                             style: AppTypography.caption.copyWith(
                               fontSize: 12,
                               color: AppColors.textSecondary,
