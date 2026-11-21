@@ -8,6 +8,8 @@ enum BookingStatus {
   cancelled,
   refundPending,
   refunded,
+  conflictRefundPending,
+  paymentFailed,
 }
 
 extension BookingStatusExtension on BookingStatus {
@@ -27,6 +29,10 @@ extension BookingStatusExtension on BookingStatus {
         return 'REFUND_PENDING';
       case BookingStatus.refunded:
         return 'REFUNDED';
+      case BookingStatus.conflictRefundPending:
+        return 'CONFLICT_REFUND_PENDING';
+      case BookingStatus.paymentFailed:
+        return 'PAYMENT_FAILED';
     }
   }
 
@@ -44,6 +50,10 @@ extension BookingStatusExtension on BookingStatus {
         return BookingStatus.refundPending;
       case 'REFUNDED':
         return BookingStatus.refunded;
+      case 'CONFLICT_REFUND_PENDING':
+        return BookingStatus.conflictRefundPending;
+      case 'PAYMENT_FAILED':
+        return BookingStatus.paymentFailed;
       case 'PENDING':
       default:
         return BookingStatus.pending;

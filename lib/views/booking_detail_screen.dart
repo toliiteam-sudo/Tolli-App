@@ -140,10 +140,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         break;
       case BookingStatus.cancelled:
       case BookingStatus.refundPending:
+      case BookingStatus.conflictRefundPending:
       case BookingStatus.refunded:
         statusBg = const Color(0xFFFEF2F2);
         statusText = const Color(0xFFDC2626);
-        statusLabel = 'CANCELLED';
+        statusLabel = booking.bookingStatus == BookingStatus.conflictRefundPending
+            ? 'REFUND PENDING'
+            : (booking.bookingStatus == BookingStatus.refunded ? 'REFUNDED' : 'CANCELLED');
+        break;
+      case BookingStatus.paymentFailed:
+        statusBg = const Color(0xFFFEF2F2);
+        statusText = const Color(0xFFDC2626);
+        statusLabel = 'PAYMENT FAILED';
         break;
       case BookingStatus.pending:
         statusBg = const Color(0xFFEFF6FF);
