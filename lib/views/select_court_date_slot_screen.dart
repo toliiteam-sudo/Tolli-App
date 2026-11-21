@@ -211,6 +211,15 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     }
   }
 
+  void _clearSelection() {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _selectedStartTime = null;
+      _selectedEndTime = null;
+      _selectedSlot = null;
+    });
+  }
+
   void _onStartTimeSelected(String time, bool isAvailable, String status) {
     if (!isAvailable) {
       HapticFeedback.lightImpact();
@@ -771,15 +780,54 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          _selectedStartTime == null
-              ? 'Select a start time for your ${_formatDurationLabel(_selectedDurationMinutes)} session'
-              : 'Selected: $_selectedStartTime – ${BookingTimeUtils.calculateEndTime(_selectedStartTime!, _selectedDurationMinutes)} (${BookingTimeUtils.formatDurationCompact(_selectedDurationMinutes)})',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: _selectedStartTime != null ? FontWeight.w600 : FontWeight.w500,
-            color: _selectedStartTime != null ? AppColors.primary : const Color(0xFF64748B),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text(
+                _selectedStartTime == null
+                    ? 'Select a start time for your ${_formatDurationLabel(_selectedDurationMinutes)} session'
+                    : 'Selected: $_selectedStartTime – ${BookingTimeUtils.calculateEndTime(_selectedStartTime!, _selectedDurationMinutes)} (${BookingTimeUtils.formatDurationCompact(_selectedDurationMinutes)})',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: _selectedStartTime != null ? FontWeight.w600 : FontWeight.w500,
+                  color: _selectedStartTime != null ? AppColors.primary : const Color(0xFF64748B),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (_selectedStartTime != null)
+              GestureDetector(
+                onTap: _clearSelection,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFFECACA), width: 0.8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.close_rounded, size: 12, color: Color(0xFFEF4444)),
+                      SizedBox(width: 3),
+                      Text(
+                        'Clear',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFEF4444),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 12),
 
@@ -826,7 +874,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
               crossAxisCount: 3,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
-              mainAxisExtent: 44,
+              mainAxisExtent: 48,
             ),
             itemBuilder: (context, index) {
               final item = evaluatedSlots[index];
@@ -913,6 +961,9 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     FontWeight fontWeight;
     List<BoxShadow> shadows = [];
 
+    final bool isBooked = status == 'BOOKED';
+    final bool isHeld = status == 'HELD';
+
     if (isSelected) {
       backgroundColor = AppColors.primary;
       borderColor = AppColors.primary;
@@ -931,6 +982,17 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
       borderColor = const Color(0xFF93C5FD);     // sky blue border
       textColor = const Color(0xFF063E9E);       // primary navy blue
       fontWeight = FontWeight.w700;
+    } else if (isBooked) {
+      // Booked / Slot Filled - styled clearly in Red
+      backgroundColor = const Color(0xFFFEF2F2); // soft red fill
+      borderColor = const Color(0xFFFCA5A5);     // red border
+      textColor = const Color(0xFFDC2626);       // crimson red text
+      fontWeight = FontWeight.w700;
+    } else if (isHeld) {
+      backgroundColor = const Color(0xFFFFFBEB);
+      borderColor = const Color(0xFFFDE68A);
+      textColor = const Color(0xFFD97706);
+      fontWeight = FontWeight.w600;
     } else if (isAvailable) {
       backgroundColor = Colors.white;
       borderColor = const Color(0xFFE2E8F0);
@@ -955,17 +1017,71 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
           border: Border.all(color: borderColor, width: (isSelected || isInRange) ? 1.5 : 1.0),
           boxShadow: shadows,
         ),
-        child: Text(
-          time,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: fontWeight,
-            color: textColor,
-            letterSpacing: -0.2,
-            decoration: (!isAvailable && !isSelected && !isInRange) ? TextDecoration.lineThrough : null,
-            decorationColor: const Color(0xFFCBD5E1),
-          ),
-        ),
+        child: isBooked
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    time,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                      letterSpacing: -0.2,
+                      decoration: TextDecoration.lineThrough,
+                      decorationColor: const Color(0xFFEF4444),
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  const Text(
+                    'Slot Filled',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEF4444),
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ],
+              )
+            : isHeld
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        time,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      const Text(
+                        'On Hold',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFD97706),
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    time,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: fontWeight,
+                      color: textColor,
+                      letterSpacing: -0.2,
+                      decoration: (!isAvailable && !isSelected && !isInRange) ? TextDecoration.lineThrough : null,
+                      decorationColor: const Color(0xFFCBD5E1),
+                    ),
+                  ),
       ),
     );
   }
@@ -1051,6 +1167,26 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                           color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _clearSelection,
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEE2E2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'Clear',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFEF4444),
+                            ),
+                          ),
                         ),
                       ),
                     ],
