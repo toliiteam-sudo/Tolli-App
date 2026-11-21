@@ -109,8 +109,16 @@ class ActivityModel {
   DateTime? get endTimestamp =>
       date?.add(Duration(minutes: durationMinutes));
 
-  bool get isExpired =>
-      endTimestamp != null && endTimestamp!.isBefore(DateTime.now());
+  bool get isExpired {
+    final now = DateTime.now();
+    if (endTimestamp != null) {
+      return endTimestamp!.isBefore(now);
+    }
+    if (date != null) {
+      return date!.isBefore(now);
+    }
+    return false;
+  }
 
   double get progress =>
       totalPlayers > 0 ? (joinedPlayers / totalPlayers).clamp(0.0, 1.0) : 0.0;

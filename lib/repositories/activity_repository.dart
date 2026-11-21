@@ -116,13 +116,14 @@ class ActivityRepository {
       return snapshot.docs.map((doc) {
         return ActivityModel.fromFirestore(doc, currentUid: currentUid);
       }).where((activity) {
-        if (activity.status == 'cancelled') return false;
+        if (activity.status == 'cancelled' || activity.status == 'completed' || activity.status == 'expired') return false;
+        if (activity.isExpired) return false;
         final isParticipant = currentUid != null &&
             currentUid.isNotEmpty &&
             (activity.hostId == currentUid ||
                 activity.isHost ||
                 (activity.participantIds != null && activity.participantIds!.contains(currentUid)));
-        if (!isParticipant && (activity.isExpired || activity.joinedPlayers >= activity.totalPlayers)) {
+        if (!isParticipant && activity.joinedPlayers >= activity.totalPlayers) {
           return false;
         }
         return true;
@@ -183,8 +184,14 @@ class ActivityRepository {
           if (a.status == 'cancelled' || a.status == 'completed' || a.status == 'expired') {
             return false;
           }
+          if (a.isExpired) {
+            return false;
+          }
           final endTs = a.endTimestamp;
           if (endTs != null && !endTs.isAfter(now)) {
+            return false;
+          }
+          if (a.date != null && a.date!.isBefore(now.subtract(const Duration(hours: 3)))) {
             return false;
           }
           return true;

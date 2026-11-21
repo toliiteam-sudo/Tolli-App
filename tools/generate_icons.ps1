@@ -73,3 +73,4 @@ if (Test-Path "ios/Runner/Assets.xcassets/AppIcon.appiconset") {
 
 $img.Dispose()
 Write-Output "ALL_APP_ICONS_GENERATED_SUCCESSFULLY"
+

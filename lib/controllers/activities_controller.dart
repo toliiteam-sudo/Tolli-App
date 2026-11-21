@@ -142,7 +142,33 @@ class ActivitiesController extends ChangeNotifier {
   }
 
   List<ActivityModel> get activities {
-    return _allActivities;
+    final now = DateTime.now();
+    // 1. Filter out expired or cancelled activities
+    final nonExpired = _allActivities.where((a) {
+      if (a.status == 'cancelled' || a.status == 'completed' || a.status == 'expired') {
+        return false;
+      }
+      if (a.isExpired) {
+        return false;
+      }
+      if (a.date != null && a.endTimestamp != null && a.endTimestamp!.isBefore(now)) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    // 2. Filter by selected date strip
+    if (_dates.isNotEmpty && _selectedDateIndex >= 0 && _selectedDateIndex < _dates.length) {
+      final selectedDate = _dates[_selectedDateIndex].date;
+      return nonExpired.where((a) {
+        if (a.date == null) return false;
+        return a.date!.year == selectedDate.year &&
+            a.date!.month == selectedDate.month &&
+            a.date!.day == selectedDate.day;
+      }).toList();
+    }
+
+    return nonExpired;
   }
 
   void selectDate(int index) {

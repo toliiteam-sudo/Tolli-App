@@ -97,7 +97,7 @@ void main(List<String> args) async {
           await request.response.close();
 
           print('\n====================================================');
-          print('🎉 SUCCESS! GMAIL_REFRESH_TOKEN=' + refreshToken);
+          print('🎉 SUCCESS! GMAIL_REFRESH_TOKEN=$refreshToken');
           print('====================================================\n');
         } else {
           request.response
@@ -105,7 +105,7 @@ void main(List<String> args) async {
             ..headers.contentType = ContentType.html
             ..write('<h1>Token Exchange Failed</h1><pre>${tokenRes.body}</pre>');
           await request.response.close();
-          print('❌ Token exchange failed: ' + tokenRes.body);
+          print('❌ Token exchange failed: ${tokenRes.body}');
         }
       } catch (err) {
         print('❌ Exchange error: $err');

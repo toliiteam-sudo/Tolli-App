@@ -104,13 +104,13 @@ class BookingBackendService {
   factory BookingBackendService() => _instance;
   BookingBackendService._internal();
 
-  static String baseUrl = 'http://127.0.0.1:3000';
+  static String baseUrl = 'https://tolli-app.onrender.com';
   static final List<String> _candidateUrls = [
-    'http://127.0.0.1:3000',
+    'https://tolli-app.onrender.com',
     'http://10.98.254.157:3000',
+    'http://127.0.0.1:3000',
     'http://localhost:3000',
     'http://10.0.2.2:3000',
-    'https://tolli-app.onrender.com',
   ];
 
   static void setBaseUrl(String url) {

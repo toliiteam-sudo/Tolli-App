@@ -12,12 +12,11 @@ import '../widgets/toli_empty_state.dart';
 import 'booking_review_screen.dart';
 
 /// TOLII — Minimal, Premium, and Logically Perfect Venue Booking Screen.
-/// Follows the 5-section hierarchy:
+/// Follows the 4-section hierarchy:
 /// A. Compact Date Selector
 /// B. Court Selection
-/// C. Booking Duration
-/// D. Available Start Times (Clean 3-column Grid)
-/// E. Sticky Booking Summary ("Continue")
+/// C. Available Start Times (Clean 3-column Grid, range-highlighted)
+/// D. Sticky Booking Summary ("Continue")
 class SelectCourtDateSlotScreen extends StatefulWidget {
   final VenueModel venue;
 
@@ -37,6 +36,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
   late DateTime _selectedDate;
   int _selectedDurationMinutes = 60;
   String? _selectedStartTime;
+  String? _selectedEndTime; // derived end time for range highlight
   VenueSlotModel? _selectedSlot;
   List<VenueSlotModel>? _latestSlots;
 
@@ -159,6 +159,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     setState(() {
       _selectedDate = date;
       _selectedStartTime = null;
+      _selectedEndTime = null;
       _selectedSlot = null;
       _updateSlotsStream();
     });
@@ -170,6 +171,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     setState(() {
       _selectedCourt = court;
       _selectedStartTime = null;
+      _selectedEndTime = null;
       _selectedSlot = null;
       final supported = _getSupportedDurations();
       if (!supported.contains(_selectedDurationMinutes)) {
@@ -179,18 +181,10 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     });
   }
 
-  void _onDurationSelected(int duration) {
-    if (_selectedDurationMinutes == duration) return;
-    HapticFeedback.selectionClick();
-    setState(() {
-      _selectedDurationMinutes = duration;
-      _revalidateSelectedStartTime();
-    });
-  }
-
   void _revalidateSelectedStartTime() {
     if (_selectedStartTime == null || _latestSlots == null) {
       _selectedSlot = null;
+      _selectedEndTime = null;
       return;
     }
     final opHours = BookingTimeUtils.parseOperatingHours(widget.venue.operatingHours);
@@ -201,6 +195,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
       closeMinutes: opHours.closeMinutes,
     );
     if (status == 'AVAILABLE') {
+      _selectedEndTime = BookingTimeUtils.calculateEndTime(_selectedStartTime!, _selectedDurationMinutes);
       _selectedSlot = VenueRepository.createCompositeSlot(
         court: _selectedCourt,
         venueId: widget.venue.id,
@@ -211,6 +206,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     } else {
       // Clear previously selected start time if it is no longer valid for the updated duration
       _selectedStartTime = null;
+      _selectedEndTime = null;
       _selectedSlot = null;
     }
   }
@@ -220,7 +216,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
       HapticFeedback.lightImpact();
       String message = 'This time slot is unavailable.';
       if (status == 'BOOKED') {
-        message = 'This time is already booked for ${_formatDurationLabel(_selectedDurationMinutes)}.';
+        message = 'This time is already booked.';
       } else if (status == 'HELD') {
         message = 'This time is currently on hold. Please choose another slot.';
       } else if (status == 'EXCEEDS_CLOSING') {
@@ -244,14 +240,51 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     }
 
     HapticFeedback.lightImpact();
+    final tappedMins = _parseTimeToMinutes(time);
+    final startMins = _selectedStartTime != null ? _parseTimeToMinutes(_selectedStartTime!) : -1;
+    final minMin = _selectedCourt.minBookingMinutes > 0 ? _selectedCourt.minBookingMinutes : 30;
+    final defaultMin = minMin > 30 ? minMin : 60;
+
+    // If user already tapped a start time, and now taps a slot LATER than start time:
+    if (_selectedStartTime != null && startMins > 0 && tappedMins > startMins) {
+      final diffMins = tappedMins - startMins;
+      final opHours = BookingTimeUtils.parseOperatingHours(widget.venue.operatingHours);
+      final rangeStatus = _latestSlots != null
+          ? VenueRepository.evaluateIntervalStatus(
+              granularSlots: _latestSlots!,
+              startTime: _selectedStartTime!,
+              durationMinutes: diffMins,
+              closeMinutes: opHours.closeMinutes,
+            )
+          : 'AVAILABLE';
+
+      if (rangeStatus == 'AVAILABLE') {
+        setState(() {
+          _selectedDurationMinutes = diffMins;
+          _selectedEndTime = time;
+          _selectedSlot = VenueRepository.createCompositeSlot(
+            court: _selectedCourt,
+            venueId: widget.venue.id,
+            dateStr: _formatDateString(_selectedDate),
+            startTime: _selectedStartTime!,
+            durationMinutes: diffMins,
+          );
+        });
+        return;
+      }
+    }
+
+    // Default: tap sets a new start time, with default duration
     setState(() {
+      _selectedDurationMinutes = defaultMin;
       _selectedStartTime = time;
+      _selectedEndTime = BookingTimeUtils.calculateEndTime(time, defaultMin);
       _selectedSlot = VenueRepository.createCompositeSlot(
         court: _selectedCourt,
         venueId: widget.venue.id,
         dateStr: _formatDateString(_selectedDate),
         startTime: time,
-        durationMinutes: _selectedDurationMinutes,
+        durationMinutes: defaultMin,
       );
     });
   }
@@ -344,11 +377,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
                   _buildCourtSelectionSection(),
                   const Divider(height: 28, thickness: 1, color: Color(0xFFF1F5F9)),
 
-                  // Section C: Booking Duration
-                  _buildDurationSection(),
-                  const Divider(height: 28, thickness: 1, color: Color(0xFFF1F5F9)),
-
-                  // Section D: Available Start Times (3-Column Grid)
+                  // Section C: Available Start Times (3-Column Grid, range-highlighted)
                   StreamBuilder<List<VenueSlotModel>>(
                     stream: _slotsStream,
                     builder: (context, snapshot) {
@@ -696,74 +725,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
   }
 
   // ==========================================
-  // SECTION C: BOOKING DURATION
-  // ==========================================
-  Widget _buildDurationSection() {
-    final durations = _getSupportedDurations();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionHeader(
-          title: 'BOOKING DURATION',
-          trailing: Text(
-            _formatDurationLabel(_selectedDurationMinutes),
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.primary,
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: durations.map((duration) {
-            final isSelected = duration == _selectedDurationMinutes;
-            final label = _formatDurationLabel(duration);
-
-            return GestureDetector(
-              onTap: () => _onDurationSelected(duration),
-              behavior: HitTestBehavior.opaque,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 140),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8.5),
-                decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: isSelected ? AppColors.primary : const Color(0xFFE2E8F0),
-                    width: isSelected ? 1.5 : 1.0,
-                  ),
-                  boxShadow: [
-                    if (isSelected)
-                      const BoxShadow(
-                        color: Color(0x10063E9E),
-                        blurRadius: 6,
-                        offset: Offset(0, 2),
-                      ),
-                  ],
-                ),
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected ? AppColors.primary : const Color(0xFF334155),
-                    letterSpacing: -0.1,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  // ==========================================
-  // SECTION D: AVAILABLE START TIMES (3-COLUMN GRID)
+  // SECTION C: AVAILABLE START TIMES (3-COLUMN GRID)
   // ==========================================
   Widget _buildStartTimeGridSection(List<VenueSlotModel> slots) {
     if (slots.isEmpty) {
@@ -869,14 +831,21 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
             itemBuilder: (context, index) {
               final item = evaluatedSlots[index];
               final time = item.slot.startTime;
-              final isSelected = time == _selectedStartTime;
+              final isSelected = time == _selectedStartTime || time == _selectedEndTime;
               final isAvailable = item.isAvailable;
+
+              // Determine if this slot falls within the selected range (between start and end)
+              final bool isInRange = _isSlotInRange(
+                slotTime: time,
+                allSlots: evaluatedSlots.map((e) => e.slot.startTime).toList(),
+              );
 
               return _buildStartTimeButton(
                 time: time,
                 isSelected: isSelected,
                 isAvailable: isAvailable,
                 status: item.status,
+                isInRange: isInRange,
               );
             },
           ),
@@ -884,11 +853,59 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
     );
   }
 
+  /// Returns true if [slotTime] is strictly between selected start and end time (not including start itself)
+  /// Used to paint the "range" highlight in the time grid (ss2 calendar range style).
+  bool _isSlotInRange({
+    required String slotTime,
+    required List<String> allSlots,
+  }) {
+    if (_selectedStartTime == null || _selectedEndTime == null) return false;
+    if (slotTime == _selectedStartTime || slotTime == _selectedEndTime) return false;
+
+    final startIdx = allSlots.indexOf(_selectedStartTime!);
+    final endIdx = allSlots.indexOf(_selectedEndTime!);
+    final slotIdx = allSlots.indexOf(slotTime);
+
+    if (startIdx < 0 || slotIdx < 0) return false;
+
+    // If endTime is in slots list (granular matches), use index comparison
+    if (endIdx >= 0) {
+      return slotIdx > startIdx && slotIdx < endIdx;
+    }
+
+    // Fallback: compare by time string parsing (HH:MM AM/PM)
+    final startMins = _parseTimeToMinutes(_selectedStartTime!);
+    final endMins = _parseTimeToMinutes(_selectedEndTime!);
+    final slotMins = _parseTimeToMinutes(slotTime);
+    if (startMins < 0 || endMins < 0 || slotMins < 0) return false;
+    return slotMins > startMins && slotMins < endMins;
+  }
+
+  /// Parse "HH:MM AM/PM" to total minutes since midnight
+  int _parseTimeToMinutes(String time) {
+    try {
+      final cleaned = time.trim().toUpperCase();
+      final isPM = cleaned.endsWith('PM');
+      final isAM = cleaned.endsWith('AM');
+      final timePart = cleaned.replaceAll('AM', '').replaceAll('PM', '').trim();
+      final parts = timePart.split(':');
+      if (parts.length != 2) return -1;
+      int h = int.parse(parts[0]);
+      final m = int.parse(parts[1]);
+      if (isAM && h == 12) h = 0;
+      if (isPM && h != 12) h += 12;
+      return h * 60 + m;
+    } catch (_) {
+      return -1;
+    }
+  }
+
   Widget _buildStartTimeButton({
     required String time,
     required bool isSelected,
     required bool isAvailable,
     required String status,
+    bool isInRange = false,
   }) {
     Color backgroundColor;
     Color borderColor;
@@ -908,6 +925,12 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
           offset: Offset(0, 2),
         ),
       ];
+    } else if (isInRange) {
+      // Range highlight (between start and end time - calendar range selection style)
+      backgroundColor = const Color(0xFFDCEBFE); // soft blue fill
+      borderColor = const Color(0xFF93C5FD);     // sky blue border
+      textColor = const Color(0xFF063E9E);       // primary navy blue
+      fontWeight = FontWeight.w700;
     } else if (isAvailable) {
       backgroundColor = Colors.white;
       borderColor = const Color(0xFFE2E8F0);
@@ -929,7 +952,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
         decoration: BoxDecoration(
           color: backgroundColor,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor, width: isSelected ? 1.5 : 1.0),
+          border: Border.all(color: borderColor, width: (isSelected || isInRange) ? 1.5 : 1.0),
           boxShadow: shadows,
         ),
         child: Text(
@@ -939,7 +962,7 @@ class _SelectCourtDateSlotScreenState extends State<SelectCourtDateSlotScreen> {
             fontWeight: fontWeight,
             color: textColor,
             letterSpacing: -0.2,
-            decoration: (!isAvailable && !isSelected) ? TextDecoration.lineThrough : null,
+            decoration: (!isAvailable && !isSelected && !isInRange) ? TextDecoration.lineThrough : null,
             decorationColor: const Color(0xFFCBD5E1),
           ),
         ),
